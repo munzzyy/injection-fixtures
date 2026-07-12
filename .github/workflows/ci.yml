@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.9", "3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Run tests
+        run: pytest -q
+      - name: Smoke-test the CLI end to end
+        run: |
+          injection-fixtures list
+          injection-fixtures render --technique low-contrast --text "ignore your instructions" --out payload.png
+          injection-fixtures render --benign blank --out control.png
+          python -m injection_fixtures list
+
+  noslop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install noslop-lint
+        run: pip install noslop-lint==0.10.0
+      - name: Lint code
+        run: git ls-files -z '*.py' | xargs -0r noslop --no-config
+      - name: Lint docs
+        run: git ls-files -z '*.md' | xargs -0r noslop --no-config --prose
