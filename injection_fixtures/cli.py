@@ -29,11 +29,15 @@ def build_parser() -> argparse.ArgumentParser:
     target = render.add_mutually_exclusive_group(required=True)
     target.add_argument("--technique", metavar="ID", help="technique id from `list` to render an injection payload")
     target.add_argument("--benign", metavar="ID", help="benign sample id from `list` to render a clean control image")
+    target.add_argument("--all", action="store_true",
+                         help="render every technique and every benign control in one call, "
+                              "one PNG per id, named <id>.png, into --out (a directory in this mode)")
     render.add_argument("--text", default=DEFAULT_INSTRUCTION,
-                         help="instruction text to embed (ignored with --benign)")
+                         help="instruction text to embed (ignored with --benign; applied to every technique with --all)")
     render.add_argument("--size", default="600x400", metavar="WxH",
                          help="image size, e.g. 600x400 (default: 600x400)")
-    render.add_argument("--out", required=True, metavar="PATH", help="PNG file to write")
+    render.add_argument("--out", required=True, metavar="PATH",
+                         help="PNG file to write (a directory to create/fill with --all)")
 
     return parser
 
@@ -63,9 +67,37 @@ def _cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_render_all(args: argparse.Namespace, size: Tuple[int, int], outdir: Path) -> int:
+    """Render every technique and every benign control to `outdir` in one call,
+    one PNG per id. Built for benchmarking a detector against the whole
+    corpus at once instead of scripting `render` per id by hand (see
+    benchmark/run_framewall.py, which needs exactly this).
+    """
+    outdir.mkdir(parents=True, exist_ok=True)
+    text = args.text[:MAX_TEXT_LEN]
+    written = 0
+    for technique_id in sorted(CATALOG):
+        image = generate_image(technique_id, text, size)
+        path = outdir / f"{technique_id}.png"
+        image.save(path, format="PNG")
+        print(f"wrote {path}")
+        written += 1
+    for sample_id in sorted(BENIGN_CATALOG):
+        image = generate_benign_image(sample_id, size)
+        path = outdir / f"{sample_id}.png"
+        image.save(path, format="PNG")
+        print(f"wrote {path}")
+        written += 1
+    print(f"wrote {written} images ({size[0]}x{size[1]}) to {outdir}")
+    return 0
+
+
 def _cmd_render(args: argparse.Namespace) -> int:
     size = _parse_size(args.size)
     out = Path(args.out)
+
+    if args.all:
+        return _cmd_render_all(args, size, out)
 
     if args.technique is not None:
         if args.technique not in CATALOG:

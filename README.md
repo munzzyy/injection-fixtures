@@ -157,6 +157,18 @@ control = generate_benign_image("blank", size=(800, 600))
   asserted against a real OCR engine at generation time (the test suite
   doesn't depend on tesseract or any OCR library being installed).
 
+## Benchmark: how well a real detector does against this
+
+We pointed [framewall](https://github.com/munzzyy/framewall), an
+open-source screenshot scanner from the same author, at every technique in
+this catalog and kept the real number: framewall 0.1.0 catches 2 of the 8
+techniques here and false-positives on 1 of the 4 benign controls. Full
+per-technique breakdown, what tripped each false positive, and the caveats
+that come with a one-run benchmark: [docs/benchmarks/framewall.md](docs/benchmarks/framewall.md).
+
+Reproduce it yourself with `python benchmark/run_framewall.py` (needs
+framewall installed and on `PATH`; see the script's own docstring).
+
 ## Grounded in
 
 Motivated by the fine-grained typographic-injection categories (low

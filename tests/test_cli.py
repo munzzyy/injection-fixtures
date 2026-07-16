@@ -107,6 +107,47 @@ def test_render_rejects_technique_and_benign_together(tmp_path):
         ])
 
 
+def test_render_all_writes_every_technique_and_benign_sample(tmp_path):
+    code, out, _ = _run(["render", "--all", "--out", str(tmp_path)])
+    assert code == 0
+    for technique_id in CATALOG:
+        with Image.open(tmp_path / f"{technique_id}.png") as img:
+            img.load()
+            assert img.size == (600, 400)
+    for sample_id in BENIGN_CATALOG:
+        assert (tmp_path / f"{sample_id}.png").exists()
+    assert f"wrote {len(CATALOG) + len(BENIGN_CATALOG)} images" in out
+
+
+def test_render_all_creates_missing_output_directory(tmp_path):
+    outdir = tmp_path / "nested" / "corpus"
+    code, _, _ = _run(["render", "--all", "--out", str(outdir)])
+    assert code == 0
+    assert outdir.is_dir()
+
+
+def test_render_all_honors_custom_size(tmp_path):
+    code, _, _ = _run(["render", "--all", "--size", "320x240", "--out", str(tmp_path)])
+    assert code == 0
+    with Image.open(tmp_path / "low-contrast.png") as img:
+        img.load()
+        assert img.size == (320, 240)
+
+
+def test_render_all_rejects_technique_together(tmp_path):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args([
+            "render", "--all", "--technique", "low-contrast", "--out", str(tmp_path),
+        ])
+
+
+def test_render_all_rejects_benign_together(tmp_path):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args([
+            "render", "--all", "--benign", "blank", "--out", str(tmp_path),
+        ])
+
+
 def test_render_invalid_size_string_exits_nonzero(tmp_path):
     code, _, _ = _run([
         "render", "--technique", "low-contrast", "--size", "not-a-size", "--out", str(tmp_path / "x.png"),
