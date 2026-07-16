@@ -1,7 +1,7 @@
 # injection-fixtures
 
 [![CI](https://github.com/munzzyy/injection-fixtures/actions/workflows/ci.yml/badge.svg)](https://github.com/munzzyy/injection-fixtures/actions/workflows/ci.yml)
-[![License: Prosperity 3.0.0](https://img.shields.io/badge/license-Prosperity--3.0.0-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
 
 A small catalog of known visual prompt-injection payloads, packaged as pytest
@@ -195,6 +195,4 @@ counterpart in the same PR.
 
 ## License
 
-Prosperity Public License 3.0.0 — free for noncommercial use, thirty-day
-trial for commercial use. See [LICENSE](LICENSE). Contributions come in
-under the Blue Oak Model License; see [CONTRIBUTING.md](CONTRIBUTING.md).
+MIT — free to use, change, and ship, commercial or not. See [LICENSE](LICENSE).
