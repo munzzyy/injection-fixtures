@@ -196,3 +196,7 @@ counterpart in the same PR.
 ## License
 
 MIT — free to use, change, and ship, commercial or not. See [LICENSE](LICENSE).
+
+## Support
+
+If these fixtures caught a regression in your agent's defenses, [sponsoring](https://github.com/sponsors/munzzyy) is what keeps the corpus growing.
