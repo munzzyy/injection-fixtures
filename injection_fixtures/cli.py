@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
+
+from PIL import ImageChops
 
 from . import __version__
 from .benign import BENIGN_CATALOG, generate_benign_image
@@ -36,6 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="instruction text to embed (ignored with --benign; applied to every technique with --all)")
     render.add_argument("--size", default="600x400", metavar="WxH",
                          help="image size, e.g. 600x400 (default: 600x400)")
+    render.add_argument("--seed", type=int, default=None, metavar="INT",
+                         help="seed for random number generators")
     render.add_argument("--out", required=True, metavar="PATH",
                          help="PNG file to write (a directory to create/fill with --all)")
 
@@ -84,20 +89,43 @@ def _cmd_render_all(args: argparse.Namespace, size: Tuple[int, int], outdir: Pat
         return 2
     text = args.text[:MAX_TEXT_LEN]
     written = 0
+    manifest = []
     try:
         outdir.mkdir(parents=True, exist_ok=True)
         for technique_id in sorted(CATALOG):
-            image = generate_image(technique_id, text, size)
+            image = generate_image(technique_id, text, size, seed=args.seed)
             path = outdir / f"{technique_id}.png"
             image.save(path, format="PNG")
             print(f"wrote {path}")
             written += 1
+
+            image_without = generate_image(technique_id, "", size, seed=args.seed)
+            bbox = ImageChops.difference(image, image_without).getbbox()
+            manifest.append({
+                "filename": f"{technique_id}.png",
+                "technique": technique_id,
+                "instruction": text,
+                "location": bbox,
+            })
+
         for sample_id in sorted(BENIGN_CATALOG):
-            image = generate_benign_image(sample_id, size)
+            image = generate_benign_image(sample_id, size, seed=args.seed)
             path = outdir / f"{sample_id}.png"
             image.save(path, format="PNG")
             print(f"wrote {path}")
             written += 1
+
+            manifest.append({
+                "filename": f"{sample_id}.png",
+                "technique": sample_id,
+                "instruction": None,
+                "location": None,
+            })
+
+        manifest_path = outdir / "manifest.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+        print(f"wrote {manifest_path}")
     except ValueError as e:
         print(f"injection-fixtures: {e}", file=sys.stderr)
         return 2
@@ -124,13 +152,13 @@ def _cmd_render(args: argparse.Namespace) -> int:
                 print(f"known ids: {', '.join(sorted(CATALOG))}", file=sys.stderr)
                 return 2
             text = args.text[:MAX_TEXT_LEN]
-            image = generate_image(args.technique, text, size)
+            image = generate_image(args.technique, text, size, seed=args.seed)
         else:
             if args.benign not in BENIGN_CATALOG:
                 print(f"injection-fixtures: unknown benign sample id: {args.benign!r}", file=sys.stderr)
                 print(f"known ids: {', '.join(sorted(BENIGN_CATALOG))}", file=sys.stderr)
                 return 2
-            image = generate_benign_image(args.benign, size)
+            image = generate_benign_image(args.benign, size, seed=args.seed)
     except ValueError as e:
         print(f"injection-fixtures: {e}", file=sys.stderr)
         return 2

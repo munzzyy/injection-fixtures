@@ -110,7 +110,21 @@ def test_render_rejects_technique_and_benign_together(tmp_path):
         ])
 
 
+def test_render_with_seed_is_byte_reproducible(tmp_path):
+    out1 = tmp_path / "seed1.png"
+    out2 = tmp_path / "seed1_again.png"
+    out3 = tmp_path / "seed2.png"
+
+    _run(["render", "--technique", "caption-chrome", "--seed", "123", "--out", str(out1)])
+    _run(["render", "--technique", "caption-chrome", "--seed", "123", "--out", str(out2)])
+    _run(["render", "--technique", "caption-chrome", "--seed", "456", "--out", str(out3)])
+
+    assert out1.read_bytes() == out2.read_bytes()
+    assert out1.read_bytes() != out3.read_bytes()
+
+
 def test_render_all_writes_every_technique_and_benign_sample(tmp_path):
+    import json
     code, out, _ = _run(["render", "--all", "--out", str(tmp_path)])
     assert code == 0
     for technique_id in CATALOG:
@@ -120,6 +134,25 @@ def test_render_all_writes_every_technique_and_benign_sample(tmp_path):
     for sample_id in BENIGN_CATALOG:
         assert (tmp_path / f"{sample_id}.png").exists()
     assert f"wrote {len(CATALOG) + len(BENIGN_CATALOG)} images" in out
+
+    manifest_path = tmp_path / "manifest.json"
+    assert manifest_path.exists()
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+    assert len(manifest) == len(CATALOG) + len(BENIGN_CATALOG)
+
+    manifest_by_id = {item["technique"]: item for item in manifest}
+    for technique_id in CATALOG:
+        entry = manifest_by_id[technique_id]
+        assert entry["filename"] == f"{technique_id}.png"
+        assert entry["instruction"] is not None
+        assert entry["location"] is not None
+        assert len(entry["location"]) == 4
+    for sample_id in BENIGN_CATALOG:
+        entry = manifest_by_id[sample_id]
+        assert entry["filename"] == f"{sample_id}.png"
+        assert entry["instruction"] is None
+        assert entry["location"] is None
 
 
 def test_render_all_creates_missing_output_directory(tmp_path):
