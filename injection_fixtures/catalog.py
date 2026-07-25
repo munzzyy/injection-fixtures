@@ -35,7 +35,7 @@ CATALOG: Dict[str, Technique] = {
         Technique(
             id="white-on-white",
             name="White-on-white / color-matched text",
-            description="Text drawn in the exact background color: zero pixel-intensity contrast against whatever base image is used.",
+            description="Text one shade off the background color: near-zero pixel-intensity contrast against whatever base image is used, still a real (recoverable) pixel value.",
             ocr_expected=False,
             generate=_t.generate_white_on_white,
         ),

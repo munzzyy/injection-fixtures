@@ -69,6 +69,25 @@ def test_make_injection_image_factory_rejects_unknown_id(pytester):
     result.assert_outcomes(passed=1)
 
 
+def test_make_injection_image_factory_enforces_size_caps(pytester):
+    # The factory used to call the generator directly, skipping validate_size,
+    # so a test author could render a 10001px fixture the CLI would reject. It
+    # must now enforce the same caps as the library entry point.
+    pytester.makepyfile(
+        test_consumer="""
+        import pytest
+
+        def test_it(make_injection_image):
+            with pytest.raises(ValueError):
+                make_injection_image("low-contrast", "hi", size=(0, 0))
+            with pytest.raises(ValueError):
+                make_injection_image("low-contrast", "hi", size=(10001, 10))
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
 def test_make_benign_image_factory_is_usable_directly(pytester):
     pytester.makepyfile(
         test_consumer="""

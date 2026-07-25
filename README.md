@@ -44,7 +44,7 @@ Injection techniques:
   tiny-corner      Tiny corner text  [ocr-evasive]
     A short instruction in very small type tucked into a corner of the image.
   white-on-white   White-on-white / color-matched text  [ocr-evasive]
-    Text drawn in the exact background color: zero pixel-intensity contrast against whatever base image is used.
+    Text one shade off the background color: near-zero pixel-intensity contrast against whatever base image is used, still a real (recoverable) pixel value.
 
 Benign controls:
   benign-caption   Ordinary photo caption

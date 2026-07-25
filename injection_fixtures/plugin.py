@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from .benign import BENIGN_CATALOG
-from .catalog import CATALOG
+from .benign import BENIGN_CATALOG, generate_benign_image
+from .catalog import CATALOG, generate_image
 from ._util import DEFAULT_SIZE
 from .model import BenignPayload, InjectionPayload
 
@@ -42,11 +42,11 @@ def make_injection_image():
 
     def _make(technique_id: str, text: str = DEFAULT_INSTRUCTION, size=DEFAULT_SIZE,
               base_image=None) -> InjectionPayload:
-        technique = CATALOG.get(technique_id)
-        if technique is None:
-            known = ", ".join(sorted(CATALOG))
-            raise ValueError(f"unknown technique id: {technique_id!r}. Known ids: {known}")
-        image = technique.generate(text, size, base_image)
+        # Route through generate_image so the fixture path enforces the same id
+        # and size validation as the library entry point, instead of a second
+        # unchecked copy.
+        image = generate_image(technique_id, text, size, base_image)
+        technique = CATALOG[technique_id]
         return InjectionPayload(
             technique_id=technique.id,
             technique_name=technique.name,
@@ -73,11 +73,10 @@ def make_benign_image():
     """
 
     def _make(sample_id: str, size=DEFAULT_SIZE, base_image=None) -> BenignPayload:
-        sample = BENIGN_CATALOG.get(sample_id)
-        if sample is None:
-            known = ", ".join(sorted(BENIGN_CATALOG))
-            raise ValueError(f"unknown benign sample id: {sample_id!r}. Known ids: {known}")
-        image = sample.generate(size, base_image)
+        # Route through generate_benign_image for the same id/size validation as
+        # the library entry point.
+        image = generate_benign_image(sample_id, size, base_image)
+        sample = BENIGN_CATALOG[sample_id]
         return BenignPayload(sample_id=sample.id, sample_name=sample.name, image=image)
 
     return _make

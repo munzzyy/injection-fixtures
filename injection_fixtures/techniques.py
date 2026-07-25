@@ -23,7 +23,6 @@ from ._util import (
     clip_text,
     line_height,
     load_font,
-    near_background_color,
     noise_background,
     wrap_text,
 )
@@ -39,8 +38,14 @@ def _color_matched_paragraph(
     font_size: int,
     delta: int,
 ) -> Image.Image:
-    """Shared body for `low-contrast` and `white-on-white`: draw text whose
-    color is sampled `delta` shades away from the background pixel under it.
+    """Shared body for `low-contrast` and `white-on-white`: draw text `delta`
+    shades away from whatever sits under each glyph.
+
+    The shift is computed per pixel, not once per line, so the contrast stays
+    exactly `delta` even where the text crosses a busy base image. Sampling a
+    single background pixel per line painted the whole line in that one color,
+    which destroyed the underlying content and blew the contrast wide open on
+    any non-flat base.
     """
     text = clip_text(instruction_text)
     img = canvas(size, base_image, fill=fill).convert("RGB")
@@ -48,15 +53,21 @@ def _color_matched_paragraph(
     font = load_font(font_size)
     margin = 14
     lines = wrap_text(draw, text, font, size[0] - 2 * margin)
+
+    mask = Image.new("L", size, 0)
+    mask_draw = ImageDraw.Draw(mask)
     y = margin
     lh = line_height(font)
     for line in lines:
-        sample_x = min(margin, size[0] - 1)
-        sample_y = min(y, size[1] - 1)
-        bg = img.getpixel((sample_x, sample_y))
-        color = near_background_color(bg, delta)
-        draw.text((margin, y), line, font=font, fill=color)
+        mask_draw.text((margin, y), line, font=font, fill=255)
         y += lh
+
+    # `near_background_color` as a per-channel lookup: light pixels move down by
+    # `delta`, dark pixels move up, so covered pixels sit exactly `delta` off the
+    # background under them. Pasting through the text mask leaves everything else
+    # untouched.
+    shifted = img.point(lambda c: max(0, c - delta) if c >= 128 else min(255, c + delta))
+    img.paste(shifted, (0, 0), mask)
     return img
 
 
@@ -71,11 +82,15 @@ def generate_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 def generate_white_on_white(instruction_text: str, size: Size = DEFAULT_SIZE,
                              base_image: Optional[Image.Image] = None) -> Image.Image:
-    """Text drawn in the exact background color: zero pixel-intensity contrast,
-    invisible in principle, not just in practice.
+    """Text one shade off the background color: imperceptible to a human, still
+    a real pixel value carrying the payload.
+
+    Uses `delta=1` rather than `0` on purpose. Truly zero contrast produces a
+    blank image with no recoverable text at all, which is a broken fixture, not
+    a hard one: the injected string has to actually exist in the pixels.
     """
     return _color_matched_paragraph(instruction_text, size, base_image,
-                                     fill=(255, 255, 255), font_size=16, delta=0)
+                                     fill=(255, 255, 255), font_size=16, delta=1)
 
 
 def generate_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -111,6 +126,14 @@ def generate_edge_noise(instruction_text: str, size: Size = DEFAULT_SIZE,
     y0 = int(h * 0.35)
     lines = wrap_text(draw, text, font, box_w - 10)
     lh = line_height(font)
+    if base_image is not None:
+        # Stamp the checkerboard only under the text so the technique keeps its
+        # defining high-frequency region on a caller's base image. Without this
+        # the alternating fills land on plain background: the light line goes
+        # invisible and the dark line reads as ordinary black text.
+        patch_h = lh * max(1, len(lines)) + 10
+        patch = checkerboard((box_w, patch_h)).convert("RGB")
+        img.paste(patch, (x0, y0))
     for i, line in enumerate(lines):
         color = (235, 235, 235) if i % 2 == 0 else (20, 20, 20)
         draw.text((x0 + 5, y0 + i * lh), line, font=font, fill=color)
@@ -192,7 +215,11 @@ def generate_rotated(instruction_text: str, size: Size = DEFAULT_SIZE,
     tmp = Image.new("RGBA", (max(tw, 1), th), (0, 0, 0, 0))
     ImageDraw.Draw(tmp).text((2, 2), text, font=font, fill=(40, 40, 40, 255))
     rotated = tmp.rotate(22, expand=True, resample=Image.BICUBIC)
-    x = max(0, (size[0] - rotated.width) // 2)
-    y = max(0, (size[1] - rotated.height) // 2)
+    # Center the rotated layer on the canvas. When it is wider or taller than
+    # the canvas (small sizes), the offset goes negative and crops it, instead
+    # of clamping to (0, 0) which pushed every glyph off-canvas and rendered a
+    # blank image below roughly 180px wide.
+    x = (size[0] - rotated.width) // 2
+    y = (size[1] - rotated.height) // 2
     img.paste(rotated, (x, y), rotated)
     return img.convert("RGB")

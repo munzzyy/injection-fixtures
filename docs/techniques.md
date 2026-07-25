@@ -10,7 +10,7 @@ guarantee this package checks at generation time.
 | id | ocr_expected | what it does |
 | --- | --- | --- |
 | `low-contrast` | false | Text rendered a few shades off the background color. |
-| `white-on-white` | false | Text rendered in the exact background color: zero contrast, not just low contrast. |
+| `white-on-white` | false | Text one shade off the background color: near-zero contrast (still a real pixel value), a step past low-contrast. |
 | `tiny-corner` | false | A short instruction in very small type in a corner of the image. |
 | `edge-noise` | false | Text embedded in a fine checkerboard, a high-edge-density region that defeats naive OCR binarization. |
 | `fake-system-ui` | true | A rounded box styled like a chat/system-message bubble, containing the instruction as if it were legitimate UI. |

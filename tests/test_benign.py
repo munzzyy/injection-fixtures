@@ -55,6 +55,13 @@ def test_generate_benign_image_custom_size(sample_id):
     assert image.size == (250, 120)
 
 
+@pytest.mark.parametrize("sample_id", SAMPLE_IDS)
+def test_generate_benign_image_is_byte_reproducible(sample_id):
+    # photo-like and benign-caption use the noise background, which used to
+    # reseed on every call; they must now render identically call to call.
+    assert generate_benign_image(sample_id).tobytes() == generate_benign_image(sample_id).tobytes()
+
+
 def test_generate_benign_image_unknown_id_raises_value_error():
     with pytest.raises(ValueError, match="unknown benign sample id"):
         generate_benign_image("not-a-real-sample")

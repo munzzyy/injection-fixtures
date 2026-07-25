@@ -42,14 +42,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _parse_size(value: str) -> Tuple[int, int]:
+def _parse_size(value: str) -> Optional[Tuple[int, int]]:
+    """Parse a `WxH` string, or print an error to stderr and return None so the
+    caller can exit 2 (the documented bad-input code) instead of raising.
+    """
     try:
         w_s, _, h_s = value.lower().partition("x")
         w, h = int(w_s), int(h_s)
     except (TypeError, ValueError):
-        raise SystemExit(f"injection-fixtures: invalid --size value {value!r}, expected WxH like 600x400")
+        print(f"injection-fixtures: invalid --size value {value!r}, expected WxH like 600x400", file=sys.stderr)
+        return None
     if w <= 0 or h <= 0 or w > MAX_DIMENSION or h > MAX_DIMENSION:
-        raise SystemExit(f"injection-fixtures: --size must be between 1 and {MAX_DIMENSION} in each dimension")
+        print(f"injection-fixtures: --size must be between 1 and {MAX_DIMENSION} in each dimension", file=sys.stderr)
+        return None
     return (w, h)
 
 
@@ -73,50 +78,66 @@ def _cmd_render_all(args: argparse.Namespace, size: Tuple[int, int], outdir: Pat
     corpus at once instead of scripting `render` per id by hand (see
     benchmark/run_framewall.py, which needs exactly this).
     """
-    outdir.mkdir(parents=True, exist_ok=True)
+    if outdir.exists() and not outdir.is_dir():
+        print(f"injection-fixtures: --all needs --out to be a directory, but {outdir} is a file",
+              file=sys.stderr)
+        return 2
     text = args.text[:MAX_TEXT_LEN]
     written = 0
-    for technique_id in sorted(CATALOG):
-        image = generate_image(technique_id, text, size)
-        path = outdir / f"{technique_id}.png"
-        image.save(path, format="PNG")
-        print(f"wrote {path}")
-        written += 1
-    for sample_id in sorted(BENIGN_CATALOG):
-        image = generate_benign_image(sample_id, size)
-        path = outdir / f"{sample_id}.png"
-        image.save(path, format="PNG")
-        print(f"wrote {path}")
-        written += 1
+    try:
+        outdir.mkdir(parents=True, exist_ok=True)
+        for technique_id in sorted(CATALOG):
+            image = generate_image(technique_id, text, size)
+            path = outdir / f"{technique_id}.png"
+            image.save(path, format="PNG")
+            print(f"wrote {path}")
+            written += 1
+        for sample_id in sorted(BENIGN_CATALOG):
+            image = generate_benign_image(sample_id, size)
+            path = outdir / f"{sample_id}.png"
+            image.save(path, format="PNG")
+            print(f"wrote {path}")
+            written += 1
+    except ValueError as e:
+        print(f"injection-fixtures: {e}", file=sys.stderr)
+        return 2
+    except OSError as e:
+        print(f"injection-fixtures: could not write to {outdir}: {e}", file=sys.stderr)
+        return 2
     print(f"wrote {written} images ({size[0]}x{size[1]}) to {outdir}")
     return 0
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
     size = _parse_size(args.size)
+    if size is None:
+        return 2
     out = Path(args.out)
 
     if args.all:
         return _cmd_render_all(args, size, out)
 
-    if args.technique is not None:
-        if args.technique not in CATALOG:
-            print(f"injection-fixtures: unknown technique id: {args.technique!r}", file=sys.stderr)
-            print(f"known ids: {', '.join(sorted(CATALOG))}", file=sys.stderr)
-            return 2
-        text = args.text[:MAX_TEXT_LEN]
-        image = generate_image(args.technique, text, size)
-    else:
-        if args.benign not in BENIGN_CATALOG:
-            print(f"injection-fixtures: unknown benign sample id: {args.benign!r}", file=sys.stderr)
-            print(f"known ids: {', '.join(sorted(BENIGN_CATALOG))}", file=sys.stderr)
-            return 2
-        image = generate_benign_image(args.benign, size)
-
-    if str(out.parent) not in ("", "."):
-        out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if args.technique is not None:
+            if args.technique not in CATALOG:
+                print(f"injection-fixtures: unknown technique id: {args.technique!r}", file=sys.stderr)
+                print(f"known ids: {', '.join(sorted(CATALOG))}", file=sys.stderr)
+                return 2
+            text = args.text[:MAX_TEXT_LEN]
+            image = generate_image(args.technique, text, size)
+        else:
+            if args.benign not in BENIGN_CATALOG:
+                print(f"injection-fixtures: unknown benign sample id: {args.benign!r}", file=sys.stderr)
+                print(f"known ids: {', '.join(sorted(BENIGN_CATALOG))}", file=sys.stderr)
+                return 2
+            image = generate_benign_image(args.benign, size)
+    except ValueError as e:
+        print(f"injection-fixtures: {e}", file=sys.stderr)
+        return 2
 
     try:
+        if str(out.parent) not in ("", "."):
+            out.parent.mkdir(parents=True, exist_ok=True)
         image.save(out, format="PNG")
     except OSError as e:
         print(f"injection-fixtures: could not write {out}: {e}", file=sys.stderr)
@@ -127,6 +148,16 @@ def _cmd_render(args: argparse.Namespace) -> int:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    # On a legacy-codepage console a non-ASCII output path in a status line
+    # would raise UnicodeEncodeError after the PNG was already written. Fall
+    # back to backslash escapes instead of crashing on a successful render.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(errors="backslashreplace")
+            except (ValueError, OSError):
+                pass
     args = build_parser().parse_args(argv)
     if args.command == "list":
         return _cmd_list(args)

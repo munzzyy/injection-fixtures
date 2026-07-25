@@ -4,6 +4,8 @@ control generators. Nothing here reaches the network or the filesystem.
 
 from __future__ import annotations
 
+import functools
+import random
 from typing import List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
@@ -17,12 +19,50 @@ DEFAULT_SIZE: Tuple[int, int] = (600, 400)
 MAX_TEXT_LEN = 500
 MAX_DIMENSION = 10_000
 
+# Fixed seed for the noise backgrounds so the same fixture renders to the same
+# bytes every time. Without this the noisy techniques use system randomness and
+# no two renders match, which breaks golden-image tests and any detector scored
+# near a threshold in CI.
+DEFAULT_SEED = 1234
+
+
+@functools.lru_cache(maxsize=1)
+def _tofu_signature() -> Tuple[Tuple[int, int], bytes]:
+    """The bundled font's .notdef bitmap. Any codepoint the font can't draw
+    comes back byte-identical to this box, which is how we spot silent tofu.
+    """
+    mask = load_font(16).getmask("\uffff")
+    return (mask.size, bytes(mask))
+
+
+@functools.lru_cache(maxsize=4096)
+def _font_has_glyph(ch: str) -> bool:
+    """Whether the bundled font actually has a glyph for `ch` (not a tofu box)."""
+    if ch.isspace():
+        return True
+    mask = load_font(16).getmask(ch)
+    return (mask.size, bytes(mask)) != _tofu_signature()
+
 
 def clip_text(text: str) -> str:
-    """Cap and validate the instruction/caption text before it is rendered."""
+    """Cap and validate the instruction/caption text before it is rendered.
+
+    Rejects text the bundled font can't draw: those codepoints render as
+    identical .notdef boxes, so two different strings would produce the same
+    image and the payload would silently encode only its character count.
+    """
     if not isinstance(text, str):
         raise TypeError(f"text must be a str, got {type(text).__name__}")
-    return text[:MAX_TEXT_LEN]
+    text = text[:MAX_TEXT_LEN]
+    missing = [ch for ch in dict.fromkeys(text) if not _font_has_glyph(ch)]
+    if missing:
+        shown = "".join(missing[:5])
+        raise ValueError(
+            f"the bundled font has no glyph for {shown!r}; the injection text "
+            f"would render as blank .notdef boxes. Pass text in a script the "
+            f"font covers (Latin), not one it silently drops."
+        )
+    return text
 
 
 def validate_size(size: Tuple[int, int]) -> Tuple[int, int]:
@@ -62,9 +102,18 @@ def canvas(size: Tuple[int, int], base_image: Optional[Image.Image], fill="white
     return Image.new("RGBA", size, fill)
 
 
-def noise_background(size: Tuple[int, int], sigma: int = 40) -> Image.Image:
-    """A grayscale-noise 'photo-like' busy background, RGBA."""
-    return Image.effect_noise(size, sigma).convert("RGBA")
+def noise_background(size: Tuple[int, int], sigma: int = 40,
+                     seed: int = DEFAULT_SEED) -> Image.Image:
+    """A grayscale-noise 'photo-like' busy background, RGBA.
+
+    Uses a seeded `random.Random` gaussian around mid-grey rather than
+    `Image.effect_noise`, which reseeds from system randomness on every call
+    and can't be pinned. Same `seed` and `sigma` give the same pixels.
+    """
+    rng = random.Random(seed)
+    w, h = size
+    data = bytes(min(255, max(0, int(rng.gauss(128, sigma)))) for _ in range(w * h))
+    return Image.frombytes("L", size, data).convert("RGBA")
 
 
 def checkerboard(

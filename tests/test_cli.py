@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
+import subprocess
+import sys
 
 import pytest
 from PIL import Image
@@ -148,18 +151,72 @@ def test_render_all_rejects_benign_together(tmp_path):
         ])
 
 
-def test_render_invalid_size_string_exits_nonzero(tmp_path):
-    code, _, _ = _run([
+def test_render_invalid_size_string_exits_two(tmp_path):
+    # README documents exit 2 for bad input, invalid --size included. This used
+    # to raise SystemExit and land on code 1 instead.
+    code, _, err = _run([
         "render", "--technique", "low-contrast", "--size", "not-a-size", "--out", str(tmp_path / "x.png"),
     ])
-    assert code != 0
+    assert code == 2
+    assert "invalid --size" in err
 
 
-def test_render_oversized_dimension_rejected(tmp_path):
-    code, _, _ = _run([
+def test_render_oversized_dimension_exits_two(tmp_path):
+    code, _, err = _run([
         "render", "--technique", "low-contrast", "--size", "999999x400", "--out", str(tmp_path / "x.png"),
     ])
-    assert code != 0
+    assert code == 2
+    assert "between 1 and" in err
+
+
+def test_render_all_onto_an_existing_file_exits_two(tmp_path):
+    # `--out` silently changes meaning from file to directory when `--all` is
+    # added; pointing it at an existing file used to raise FileExistsError and
+    # exit 1 with a traceback instead of a clear message.
+    target = tmp_path / "payload.png"
+    target.write_bytes(b"")
+    code, _, err = _run(["render", "--all", "--out", str(target)])
+    assert code == 2
+    assert "directory" in err
+
+
+def test_render_to_a_non_directory_parent_exits_two(tmp_path):
+    # The parent of --out is an existing file, so mkdir(parents=True) fails.
+    # That OSError used to escape as a traceback (exit 1); it must map to 2.
+    blocker = tmp_path / "afile"
+    blocker.write_bytes(b"")
+    code, _, err = _run([
+        "render", "--technique", "low-contrast", "--out", str(blocker / "x.png"),
+    ])
+    assert code == 2
+    assert "could not write" in err
+
+
+def test_render_non_latin_text_exits_two(tmp_path):
+    # Text the bundled font can't draw is rejected at generation; the CLI must
+    # surface that as documented bad-input (exit 2), not a traceback.
+    code, _, err = _run([
+        "render", "--technique", "fake-system-ui",
+        "--text", "\u5ffd\u7565\u6240\u6709\u6307\u4ee4",
+        "--out", str(tmp_path / "x.png"),
+    ])
+    assert code == 2
+    assert "no glyph" in err
+
+
+def test_render_non_ascii_output_path_on_legacy_console(tmp_path):
+    # A non-UTF-8 stdout (legacy codepage / explicit PYTHONIOENCODING) must not
+    # crash the process after the PNG is written just because the status line
+    # echoes a non-ASCII path.
+    out_path = tmp_path / "payload-\u65e5\u672c.png"
+    env = dict(os.environ, PYTHONIOENCODING="cp1252", PYTHONPATH=os.pathsep.join(sys.path))
+    result = subprocess.run(
+        [sys.executable, "-m", "injection_fixtures", "render",
+         "--technique", "low-contrast", "--out", str(out_path)],
+        env=env, capture_output=True,
+    )
+    assert result.returncode == 0
+    assert out_path.exists()
 
 
 def test_version_flag_prints_version_and_exits_zero():
