@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional, Tuple
+from typing import Callable, Tuple
 
 from PIL import Image
 
 Size = Tuple[int, int]
-InjectionGenerator = Callable[[str, Size, Optional[Image.Image], Optional[int]], Image.Image]
-BenignGenerator = Callable[[Size, Optional[Image.Image], Optional[int]], Image.Image]
+InjectionGenerator = Callable[..., Image.Image]
+BenignGenerator = Callable[..., Image.Image]
+TextPreparer = Callable[..., str]
+
+# Where a technique comes from. `typographic` covers the rendering categories
+# described in the academic work the README cites. `in-the-wild` covers the
+# ones Unit 42 catalogued from live web injections on 2026-03-03, which vary
+# how the instruction is spelled rather than how visible it is.
+PROVENANCE_TYPOGRAPHIC = "typographic"
+PROVENANCE_IN_THE_WILD = "in-the-wild"
 
 
 @dataclass(frozen=True)
@@ -20,6 +28,16 @@ class Technique:
     no contrast preprocessing) is expected to recover the injected text. It is
     a best-effort label for the consumer to filter on, not something this
     package verifies at generation time.
+
+    `min_size` is the smallest canvas on which this technique's text still
+    lands inside the image. Below it the render would come back byte-identical
+    to the same render with no instruction, so `generate_image` refuses instead
+    of handing back a fixture with no payload in it.
+
+    `prepare` returns the exact string the generator draws. It is not always
+    the caller's text: `homoglyph` substitutes look-alike codepoints,
+    `bidi-override` reverses it, and several techniques truncate. The manifest
+    written by `render --all` publishes both, so ground truth matches pixels.
     """
 
     id: str
@@ -27,6 +45,9 @@ class Technique:
     description: str
     ocr_expected: bool
     generate: InjectionGenerator
+    prepare: TextPreparer
+    min_size: Size = (64, 64)
+    provenance: str = PROVENANCE_TYPOGRAPHIC
 
 
 @dataclass(frozen=True)
@@ -37,6 +58,7 @@ class BenignSample:
     name: str
     description: str
     generate: BenignGenerator
+    min_size: Size = (1, 1)
 
 
 @dataclass(frozen=True)

@@ -6,11 +6,21 @@ from __future__ import annotations
 
 import functools
 import random
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
 DEFAULT_SIZE: Tuple[int, int] = (600, 400)
+
+# The vendored Unicode font. Pillow's bundled default font covers ASCII and
+# nothing else, so an accent, a Greek letter or a Cyrillic letter has no glyph
+# and gets rejected. This subset of DejaVu Sans adds Latin-1, Latin Extended-A,
+# Greek and Cyrillic, which is what the `homoglyph` technique needs and what a
+# non-English instruction needs. It is opt-in: pass `font_path=UNICODE_FONT` to
+# a generator, or `--font` on the CLI. The default stays Pillow's bundled font
+# so existing renders keep their exact pixels. See tools/build_font.py.
+UNICODE_FONT: Path = Path(__file__).resolve().parent / "fonts" / "InjectionFixturesSans.ttf"
 
 # Caps on untrusted input (CLI text, consumer-supplied size). A single test
 # fixture image has no business being huge, and an unbounded instruction
@@ -25,44 +35,80 @@ MAX_DIMENSION = 10_000
 # near a threshold in CI.
 DEFAULT_SEED = 1234
 
+# Line breaks are collapsed to a single space before anything is drawn.
+# Pillow's `textlength` refuses multiline input, so a newline used to reach
+# `tiny-corner` and `rotated-skew` and crash them with a raw Pillow ValueError,
+# while the six techniques that wrap through `wrap_text` swallowed it. One
+# instruction is one run of text here, whatever whitespace the caller pasted.
+LINE_BREAKS = "\r\n\v\f\u2028\u2029\u0085"
 
-@functools.lru_cache(maxsize=1)
-def _tofu_signature() -> Tuple[Tuple[int, int], bytes]:
-    """The bundled font's .notdef bitmap. Any codepoint the font can't draw
-    comes back byte-identical to this box, which is how we spot silent tofu.
+
+@functools.lru_cache(maxsize=8)
+def _tofu_signature(font_path: Optional[str]) -> Tuple[Tuple[int, int], bytes]:
+    """A font's .notdef bitmap. Any codepoint the font can't draw comes back
+    byte-identical to this box, which is how we spot silent tofu.
     """
-    mask = load_font(16).getmask("\uffff")
+    mask = load_font(16, font_path).getmask("\uffff")
     return (mask.size, bytes(mask))
 
 
 @functools.lru_cache(maxsize=4096)
-def _font_has_glyph(ch: str) -> bool:
-    """Whether the bundled font actually has a glyph for `ch` (not a tofu box)."""
+def _font_has_glyph(ch: str, font_path: Optional[str] = None) -> bool:
+    """Whether `font_path` (or the bundled font) has a real glyph for `ch`."""
     if ch.isspace():
         return True
-    mask = load_font(16).getmask(ch)
-    return (mask.size, bytes(mask)) != _tofu_signature()
+    mask = load_font(16, font_path).getmask(ch)
+    return (mask.size, bytes(mask)) != _tofu_signature(font_path)
 
 
-def clip_text(text: str) -> str:
+def normalize_breaks(text: str) -> str:
+    """Collapse every line break in `text` to a single space."""
+    # CRLF first, so a Windows line ending becomes one space and not two.
+    text = text.replace("\r\n", " ")
+    for ch in LINE_BREAKS:
+        text = text.replace(ch, " ")
+    return text
+
+
+def clip_text(text: str, font_path: Optional[str] = None) -> str:
     """Cap and validate the instruction/caption text before it is rendered.
 
-    Rejects text the bundled font can't draw: those codepoints render as
-    identical .notdef boxes, so two different strings would produce the same
-    image and the payload would silently encode only its character count.
+    Rejects text the font can't draw: those codepoints render as identical
+    .notdef boxes, so two different strings would produce the same image and
+    the payload would silently encode only its character count.
     """
     if not isinstance(text, str):
         raise TypeError(f"text must be a str, got {type(text).__name__}")
-    text = text[:MAX_TEXT_LEN]
-    missing = [ch for ch in dict.fromkeys(text) if not _font_has_glyph(ch)]
+    text = normalize_breaks(text[:MAX_TEXT_LEN])
+    missing = [ch for ch in dict.fromkeys(text) if not _font_has_glyph(ch, font_path)]
     if missing:
         shown = "".join(missing[:5])
+        which = "the bundled font" if font_path is None else f"the font at {font_path}"
         raise ValueError(
-            f"the bundled font has no glyph for {shown!r}; the injection text "
-            f"would render as blank .notdef boxes. Pass text in a script the "
-            f"font covers (Latin), not one it silently drops."
+            f"{which} has no glyph for {shown!r}; the injection text would "
+            f"render as blank .notdef boxes. The bundled font covers ASCII "
+            f"only. For accents, Greek or Cyrillic pass the vendored Unicode "
+            f"font: font_path=injection_fixtures.UNICODE_FONT in the library, "
+            f"or --font on the CLI."
         )
     return text
+
+
+def require_min_size(size: Tuple[int, int], minimum: Tuple[int, int], what: str) -> None:
+    """Reject a canvas too small for `what` to actually draw its payload.
+
+    Several techniques place their text at fixed offsets. Below a certain
+    canvas the text lands off the edge and the render comes back byte-identical
+    to the same render with no instruction at all: a fixture carrying no
+    payload, which a detector then "passes" for free. Refusing loudly beats
+    handing back a silently empty image.
+    """
+    if size[0] < minimum[0] or size[1] < minimum[1]:
+        raise ValueError(
+            f"size {size[0]}x{size[1]} is too small for {what}: it needs at "
+            f"least {minimum[0]}x{minimum[1]} for the instruction to land on "
+            f"the canvas. Below that the render carries no payload."
+        )
 
 
 def validate_size(size: Tuple[int, int]) -> Tuple[int, int]:
@@ -79,8 +125,19 @@ def validate_size(size: Tuple[int, int]) -> Tuple[int, int]:
     return (w, h)
 
 
-def load_font(size: int) -> ImageFont.ImageFont:
-    """The bundled Pillow default font, scaled to `size` where supported."""
+@functools.lru_cache(maxsize=64)
+def load_font(size: int, font_path: Optional[str] = None) -> ImageFont.ImageFont:
+    """A font at `size`: the bundled Pillow default, or the TrueType file at
+    `font_path`.
+
+    Cached because the glyph-coverage check probes one character at a time and
+    reloading a TrueType file per probe is the slow part of rendering.
+    """
+    if font_path is not None:
+        try:
+            return ImageFont.truetype(str(font_path), size=size)
+        except OSError as e:
+            raise ValueError(f"could not load the font at {font_path}: {e}") from None
     try:
         return ImageFont.load_default(size=size)
     except TypeError:
