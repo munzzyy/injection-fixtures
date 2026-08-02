@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "injection-fixtures"
-version = "0.1.0"
+version = "0.2.0"
 description = "Known visual prompt-injection payloads packaged as pytest fixtures, so a screenshot- or computer-use agent can be tested against them in CI."
 readme = "README.md"
 license = { text = "MIT" }
@@ -22,10 +22,14 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Security",
     "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+# Pinned, not floated: CI must not start failing because a new ruff added a
+# rule. Bump it deliberately. Never a runtime dependency, see CONTRIBUTING.
+lint = ["ruff==0.16.1"]
 
 [project.urls]
 Homepage = "https://github.com/munzzyy/injection-fixtures"
@@ -40,5 +44,26 @@ injection_fixtures = "injection_fixtures.plugin"
 [tool.setuptools.packages.find]
 include = ["injection_fixtures*"]
 
+# py.typed makes the annotations visible to a consumer's type checker (PEP
+# 561); without it the whole package resolves to Any. The font is a data file,
+# not a dependency: see CONTRIBUTING.
+[tool.setuptools.package-data]
+injection_fixtures = ["py.typed", "fonts/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+# Errors, undefined names, warnings, import order, likely bugs. Deliberately
+# not the pyupgrade set: these annotations are written for 3.9, which is still
+# in requires-python.
+select = ["E", "F", "W", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Every catalog description is one string on one line so the entry reads as a
+# block. Wrapping them would gain nothing.
+"injection_fixtures/catalog.py" = ["E501"]
