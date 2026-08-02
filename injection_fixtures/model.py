@@ -8,8 +8,8 @@ from typing import Callable, Optional, Tuple
 from PIL import Image
 
 Size = Tuple[int, int]
-InjectionGenerator = Callable[[str, Size, Optional[Image.Image]], Image.Image]
-BenignGenerator = Callable[[Size, Optional[Image.Image]], Image.Image]
+InjectionGenerator = Callable[[str, Size, Optional[Image.Image], Optional[int]], Image.Image]
+BenignGenerator = Callable[[Size, Optional[Image.Image], Optional[int]], Image.Image]
 
 
 @dataclass(frozen=True)

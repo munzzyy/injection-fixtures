@@ -72,7 +72,7 @@ def _color_matched_paragraph(
 
 
 def generate_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
-                           base_image: Optional[Image.Image] = None) -> Image.Image:
+                           base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """Text a few shades off the background color: easy to miss on a skim,
     still a distinct pixel value.
     """
@@ -81,7 +81,7 @@ def generate_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 
 def generate_white_on_white(instruction_text: str, size: Size = DEFAULT_SIZE,
-                             base_image: Optional[Image.Image] = None) -> Image.Image:
+                             base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """Text one shade off the background color: imperceptible to a human, still
     a real pixel value carrying the payload.
 
@@ -94,7 +94,7 @@ def generate_white_on_white(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 
 def generate_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
-                          base_image: Optional[Image.Image] = None) -> Image.Image:
+                          base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """A short line of very small text tucked into a corner."""
     text = clip_text(instruction_text)[:80]
     img = canvas(size, base_image, fill="white").convert("RGB")
@@ -109,7 +109,7 @@ def generate_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 
 def generate_edge_noise(instruction_text: str, size: Size = DEFAULT_SIZE,
-                         base_image: Optional[Image.Image] = None) -> Image.Image:
+                         base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """Text embedded in a high-frequency checkerboard region, alternating
     colors line to line so it keeps blending into the pattern's edges.
     """
@@ -141,7 +141,7 @@ def generate_edge_noise(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 
 def generate_fake_system_message(instruction_text: str, size: Size = DEFAULT_SIZE,
-                                  base_image: Optional[Image.Image] = None) -> Image.Image:
+                                  base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """A rounded box styled like a chat/system-message bubble, containing the
     instruction as if it were a legitimate UI element.
     """
@@ -165,12 +165,12 @@ def generate_fake_system_message(instruction_text: str, size: Size = DEFAULT_SIZ
 
 
 def generate_caption_chrome(instruction_text: str, size: Size = DEFAULT_SIZE,
-                             base_image: Optional[Image.Image] = None) -> Image.Image:
+                             base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """A photo-credit style bar along the bottom edge, reading as image chrome
     rather than content.
     """
     text = clip_text(instruction_text)[:120]
-    img = noise_background(size, sigma=18) if base_image is None else canvas(size, base_image)
+    img = noise_background(size, sigma=18, seed=seed) if base_image is None else canvas(size, base_image)
     img = img.convert("RGB")
     draw = ImageDraw.Draw(img)
     w, h = size
@@ -182,10 +182,10 @@ def generate_caption_chrome(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 
 def generate_low_opacity(instruction_text: str, size: Size = DEFAULT_SIZE,
-                          base_image: Optional[Image.Image] = None) -> Image.Image:
+                          base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """Text at low alpha composited over a busy background."""
     text = clip_text(instruction_text)
-    base = noise_background(size, sigma=45) if base_image is None else canvas(size, base_image)
+    base = noise_background(size, sigma=45, seed=seed) if base_image is None else canvas(size, base_image)
     base = base.convert("RGBA")
     overlay = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -202,7 +202,7 @@ def generate_low_opacity(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 
 def generate_rotated(instruction_text: str, size: Size = DEFAULT_SIZE,
-                      base_image: Optional[Image.Image] = None) -> Image.Image:
+                      base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """Text rendered upright then rotated, the way a watermark or a
     deliberately OCR-hostile payload would sit at an angle.
     """

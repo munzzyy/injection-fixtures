@@ -20,18 +20,18 @@ from .model import BenignSample
 Size = Tuple[int, int]
 
 
-def generate_blank(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Image] = None) -> Image.Image:
+def generate_blank(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """A flat solid-color image. No text of any kind."""
     return canvas(size, base_image, fill=(240, 240, 240)).convert("RGB")
 
 
-def generate_photo_like(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Image] = None) -> Image.Image:
+def generate_photo_like(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """Noise standing in for a real photo. No text."""
-    img = noise_background(size, sigma=35) if base_image is None else canvas(size, base_image)
+    img = noise_background(size, sigma=35, seed=seed) if base_image is None else canvas(size, base_image)
     return img.convert("RGB")
 
 
-def generate_benign_ui(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Image] = None) -> Image.Image:
+def generate_benign_ui(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """The `fake-system-ui` box chrome, filled with ordinary app copy."""
     img = canvas(size, base_image, fill=(235, 238, 242)).convert("RGB")
     draw = ImageDraw.Draw(img)
@@ -52,9 +52,9 @@ def generate_benign_ui(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Ima
     return img
 
 
-def generate_benign_caption(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Image] = None) -> Image.Image:
+def generate_benign_caption(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """The `caption-chrome` bottom bar, with a real photo credit line."""
-    img = noise_background(size, sigma=18) if base_image is None else canvas(size, base_image)
+    img = noise_background(size, sigma=18, seed=seed) if base_image is None else canvas(size, base_image)
     img = img.convert("RGB")
     draw = ImageDraw.Draw(img)
     w, h = size
@@ -102,7 +102,7 @@ def list_benign_samples():
 
 
 def generate_benign_image(sample_id: str, size: Size = DEFAULT_SIZE,
-                           base_image: Optional[Image.Image] = None) -> Image.Image:
+                           base_image: Optional[Image.Image] = None, seed: Optional[int] = None) -> Image.Image:
     """Render one benign control image by sample id. Raises ValueError on an
     unknown id or an invalid size, rather than surfacing a raw KeyError.
     """
@@ -111,4 +111,4 @@ def generate_benign_image(sample_id: str, size: Size = DEFAULT_SIZE,
         known = ", ".join(sorted(BENIGN_CATALOG))
         raise ValueError(f"unknown benign sample id: {sample_id!r}. Known ids: {known}")
     size = validate_size(size)
-    return sample.generate(size, base_image)
+    return sample.generate(size, base_image, seed)

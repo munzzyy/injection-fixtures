@@ -103,14 +103,15 @@ def canvas(size: Tuple[int, int], base_image: Optional[Image.Image], fill="white
 
 
 def noise_background(size: Tuple[int, int], sigma: int = 40,
-                     seed: int = DEFAULT_SEED) -> Image.Image:
+                     seed: Optional[int] = None) -> Image.Image:
     """A grayscale-noise 'photo-like' busy background, RGBA.
 
     Uses a seeded `random.Random` gaussian around mid-grey rather than
     `Image.effect_noise`, which reseeds from system randomness on every call
     and can't be pinned. Same `seed` and `sigma` give the same pixels.
     """
-    rng = random.Random(seed)
+    actual_seed = seed if seed is not None else DEFAULT_SEED
+    rng = random.Random(actual_seed)
     w, h = size
     data = bytes(min(255, max(0, int(rng.gauss(128, sigma)))) for _ in range(w * h))
     return Image.frombytes("L", size, data).convert("RGBA")

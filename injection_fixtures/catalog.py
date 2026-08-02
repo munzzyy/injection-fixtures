@@ -14,7 +14,7 @@ too small, angled, embedded in noise, or blended into a busy region.
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from . import techniques as _t
 from ._util import DEFAULT_SIZE, validate_size
@@ -91,7 +91,7 @@ def list_techniques():
 
 
 def generate_image(technique_id: str, instruction_text: str, size: Size = DEFAULT_SIZE,
-                    base_image=None):
+                    base_image=None, seed: Optional[int] = None):
     """Render one injection payload by technique id. Raises ValueError on an
     unknown id or an invalid size, rather than surfacing a raw KeyError.
     """
@@ -100,4 +100,4 @@ def generate_image(technique_id: str, instruction_text: str, size: Size = DEFAUL
         known = ", ".join(sorted(CATALOG))
         raise ValueError(f"unknown technique id: {technique_id!r}. Known ids: {known}")
     size = validate_size(size)
-    return technique.generate(instruction_text, size, base_image)
+    return technique.generate(instruction_text, size, base_image, seed)
