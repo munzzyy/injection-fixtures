@@ -22,7 +22,7 @@ from __future__ import annotations
 import functools
 from typing import Dict, Optional, Tuple
 
-from PIL import ImageChops
+from PIL import Image, ImageChops
 
 from . import techniques as _t
 from ._util import DEFAULT_SIZE, require_min_size, validate_size
@@ -209,7 +209,7 @@ def generate_image(technique_id: str, instruction_text: str, size: Size = DEFAUL
 
 def generate_image_with_bbox(technique_id: str, instruction_text: str, size: Size = DEFAULT_SIZE,
                               base_image=None, seed: Optional[int] = None,
-                              font_path: Optional[str] = None):
+                              font_path: Optional[str] = None) -> Tuple[Image.Image, Optional[BBox]]:
     """Like `generate_image`, but also returns where the instruction landed.
 
     Returns `(image, bbox)`. `bbox` is `(left, top, right, bottom)` in pixel
