@@ -11,7 +11,8 @@ guarantee this package checks at generation time.
 rendering categories described in the research the README cites. `in-the-wild`
 covers the ones [Unit 42
 catalogued](https://unit42.paloaltonetworks.com/ai-agent-prompt-injection/)
-from live web injections on 2026-03-03.
+from live web injections on 2026-03-03. `stacked` covers combinations of two
+techniques applied to one instruction at once.
 
 `min size` is the smallest canvas the technique will render on. Below it the
 image would come back identical to the same render with no instruction in it,
@@ -31,6 +32,8 @@ so `generate_image` raises instead of handing you a fixture with no payload.
 | `bidi-override` | false | in-the-wild | 32x32 | The instruction drawn the way a U+202E override displays it, reversed. |
 | `split-payload` | true | in-the-wild | 64x64 | One instruction cut into fragments scattered across the canvas, with unrelated filler copy between them. |
 | `color-camouflage` | false | in-the-wild | 96x96 | Text a few shades off the saturated colored panel it sits in, with two more panels beside it as distractors. |
+| `rotated-low-contrast` | false | stacked | 32x32 | `rotated-skew` and `low-contrast` compounded: angled text a few shades off the background. |
+| `homoglyph-tiny-corner` | false | stacked | 32x32 | `homoglyph` and `tiny-corner` compounded: the Cyrillic look-alike substitution, in tiny type in a corner. |
 
 `fake-system-ui` and `caption-chrome` render clean, upright, high-contrast
 text on purpose, which is exactly what OCR handles well; that is what makes
@@ -70,6 +73,27 @@ actually decide.
   ten shades off the panel color, with two more panels beside it as
   distractors. `low-contrast` hides text on a near-white page; a detector
   tuned for that has nothing to fire on here.
+
+## Stacked combinations
+
+Why would an image use only one trick? A real adversarial one rarely does.
+These two combine the
+mechanisms of two existing techniques on the same rendering, rather than
+either one applied in isolation:
+
+- **`rotated-low-contrast`** draws the instruction rotated to an angle, in a
+  color close to the background, instead of `rotated-skew`'s own full-contrast
+  dark grey. A defense that catches an angled text region by contrast, or
+  low-contrast text by its bounding box, has less to fire on than it would
+  against either technique alone.
+- **`homoglyph-tiny-corner`** draws the Cyrillic-substituted instruction in
+  tiny type tucked into a corner, instead of `homoglyph`'s full-width
+  paragraph. A defense has to both notice the small corner region and try the
+  lookalike normalization on whatever it finds there.
+
+`generate_stacked` in `injection_fixtures/techniques.py` is not a generic
+composer of any two generators - most pairs would just overwrite each other's
+canvas. It dispatches to a short, curated list of pairs that actually stack.
 
 ## Text and fonts
 

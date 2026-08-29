@@ -407,3 +407,4 @@ def test_list_shows_each_technique_provenance():
     assert code == 0
     assert "in-the-wild" in out
     assert "typographic" in out
+    assert "stacked" in out

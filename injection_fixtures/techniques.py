@@ -19,7 +19,7 @@ image.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw
 
@@ -475,3 +475,104 @@ def generate_color_camouflage(instruction_text: str, size: Size = DEFAULT_SIZE,
             f"inside its panel; render it at {size[0]}x{size[1] * 2} or larger"
         )
     return img
+
+
+def prepare_stacked_homoglyph_tiny_corner(text: str, font_path: Optional[str] = None) -> str:
+    """`homoglyph-tiny-corner` draws one short line, so it takes homoglyph's
+    substitution then tiny-corner's 80-character cap, in that order: the
+    substitution has to run on the full instruction, the same as it would for
+    `homoglyph` alone, not on an already-truncated fragment of it.
+    """
+    return prepare_homoglyph(text, font_path)[:80]
+
+
+def generate_stacked_rotated_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
+                                           base_image: Optional[Image.Image] = None,
+                                           seed: Optional[int] = None,
+                                           font_path: Optional[str] = None) -> Image.Image:
+    """`rotated-skew` and `low-contrast` compounded: the same text rotated to
+    an angle, in a color a few shades off the background instead of
+    `rotated-skew`'s own full-contrast dark grey.
+
+    A defense tuned to catch either trick alone - grayscale contrast against a
+    light background, or an angled text region - has less to fire on here
+    than it would against either technique by itself.
+    """
+    text = prepare_caption(instruction_text, font_path)
+    fill = (255, 255, 255)
+    img = canvas(size, base_image, fill=fill).convert("RGBA")
+    font = load_font(18, font_path)
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    tw = int(probe.textlength(text, font=font)) + 8
+    th = line_height(font, default=24) + 12
+    tmp = Image.new("RGBA", (max(tw, 1), th), (0, 0, 0, 0))
+    text_color = near_background_color(fill, 6)
+    ImageDraw.Draw(tmp).text((2, 2), text, font=font, fill=(*text_color, 255))
+    rotated = tmp.rotate(22, expand=True, resample=Image.BICUBIC)
+    # Same off-canvas clamp as generate_rotated: center, then let a negative
+    # offset crop instead of pushing the layer past the edge.
+    x = (size[0] - rotated.width) // 2
+    y = (size[1] - rotated.height) // 2
+    img.paste(rotated, (x, y), rotated)
+    return img.convert("RGB")
+
+
+def generate_stacked_homoglyph_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
+                                            base_image: Optional[Image.Image] = None,
+                                            seed: Optional[int] = None,
+                                            font_path: Optional[str] = None) -> Image.Image:
+    """`homoglyph` and `tiny-corner` compounded: the Cyrillic-substituted
+    instruction, in tiny type tucked into a corner instead of a full-width
+    paragraph.
+
+    Either trick alone leaves an opening: homoglyph's paragraph is easy for a
+    human to spot even if a filter misses it, tiny-corner's plain ASCII text
+    is exact-matchable if a filter does OCR it. Stacked, a defense has to both
+    notice the corner and try the reversal-and-lookalike normalization on
+    whatever it finds there.
+    """
+    text = prepare_stacked_homoglyph_tiny_corner(instruction_text, font_path)
+    font_file = font_path or UNICODE_FONT
+    img = canvas(size, base_image, fill="white").convert("RGB")
+    draw = ImageDraw.Draw(img)
+    font = load_font(7, font_file)
+    w, h = size
+    tw = draw.textlength(text, font=font)
+    x = max(1, w - int(tw) - 3)
+    y = max(1, h - 12)
+    draw.text((x, y), text, font=font, fill=(90, 90, 90))
+    return img
+
+
+# Registered stacked combinations, keyed by the sorted pair of component
+# technique ids. Not every pair of techniques composes into something
+# meaningful - two background-replacement techniques would just have one
+# overwrite the other's canvas - so this is a short, deliberately curated
+# list rather than every combination the catalog could produce.
+STACKED_GENERATORS: Dict[Tuple[str, str], Callable[..., Image.Image]] = {
+    tuple(sorted(("low-contrast", "rotated-skew"))): generate_stacked_rotated_low_contrast,
+    tuple(sorted(("homoglyph", "tiny-corner"))): generate_stacked_homoglyph_tiny_corner,
+}
+
+
+def generate_stacked(technique_ids: List[str], instruction_text: str, size: Size = DEFAULT_SIZE,
+                      base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
+                      font_path: Optional[str] = None) -> Image.Image:
+    """Render `instruction_text` with two techniques' transforms compounded
+    rather than either one applied alone.
+
+    `technique_ids` must be exactly one of the pairs in `STACKED_GENERATORS`,
+    in any order. This does not generically compose any two generators - most
+    pairs would just have one overwrite the other's canvas - it dispatches to
+    a hand-built combination that actually stacks the two mechanisms on the
+    same rendering.
+    """
+    key = tuple(sorted(technique_ids))
+    generator = STACKED_GENERATORS.get(key)
+    if generator is None:
+        known = ", ".join(" + ".join(pair) for pair in sorted(STACKED_GENERATORS))
+        raise ValueError(
+            f"no stacked combination registered for {list(technique_ids)!r}. "
+            f"Known combinations: {known}"
+        )
+    return generator(instruction_text, size, base_image, seed, font_path)

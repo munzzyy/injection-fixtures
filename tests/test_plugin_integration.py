@@ -28,6 +28,24 @@ def test_visual_injection_payloads_fixture_covers_the_whole_catalog(pytester):
     result.assert_outcomes(passed=len(CATALOG))
 
 
+def test_visual_injection_payloads_fixture_carries_a_bbox(pytester):
+    # bbox has to be usable straight off the fixture, no CLI manifest and no
+    # second render, since that is the whole point of adding it here.
+    pytester.makepyfile(
+        test_consumer="""
+        def test_payload_bbox_is_inside_the_image(visual_injection_payloads):
+            payload = visual_injection_payloads
+            assert payload.bbox is not None
+            left, top, right, bottom = payload.bbox
+            w, h = payload.image.size
+            assert 0 <= left < right <= w
+            assert 0 <= top < bottom <= h
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=len(CATALOG))
+
+
 def test_benign_control_images_fixture_covers_the_whole_catalog(pytester):
     pytester.makepyfile(
         test_consumer="""
@@ -49,6 +67,21 @@ def test_make_injection_image_factory_is_usable_directly(pytester):
             assert payload.technique_id == "tiny-corner"
             assert payload.instruction_text == "do the thing now"
             assert payload.image.size[0] > 0
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_make_injection_image_factory_bbox_is_none_only_for_empty_text(pytester):
+    pytester.makepyfile(
+        test_consumer="""
+        def test_it(make_injection_image):
+            with_text = make_injection_image("tiny-corner", "do the thing now")
+            assert with_text.bbox is not None
+
+            without_text = make_injection_image("tiny-corner", "")
+            assert without_text.bbox is None
         """
     )
     result = pytester.runpytest()

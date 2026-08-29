@@ -19,11 +19,14 @@ about their own layer, which is the point of the flag.
 
 from __future__ import annotations
 
+import functools
 from typing import Dict, Optional, Tuple
+
+from PIL import ImageChops
 
 from . import techniques as _t
 from ._util import DEFAULT_SIZE, require_min_size, validate_size
-from .model import PROVENANCE_IN_THE_WILD, Technique
+from .model import PROVENANCE_IN_THE_WILD, PROVENANCE_STACKED, BBox, Technique
 
 Size = Tuple[int, int]
 
@@ -142,6 +145,26 @@ CATALOG: Dict[str, Technique] = {
             min_size=(96, 96),
             provenance=PROVENANCE_IN_THE_WILD,
         ),
+        Technique(
+            id="rotated-low-contrast",
+            name="Rotated, low-contrast text",
+            description="rotated-skew and low-contrast compounded: angled text a few shades off the background instead of full-contrast dark grey.",
+            ocr_expected=False,
+            generate=functools.partial(_t.generate_stacked, ["low-contrast", "rotated-skew"]),
+            prepare=_t.prepare_caption,
+            min_size=(32, 32),
+            provenance=PROVENANCE_STACKED,
+        ),
+        Technique(
+            id="homoglyph-tiny-corner",
+            name="Homoglyph text in a tiny corner",
+            description="homoglyph and tiny-corner compounded: the Cyrillic look-alike substitution, in tiny type tucked into a corner instead of a full-width paragraph.",
+            ocr_expected=False,
+            generate=functools.partial(_t.generate_stacked, ["homoglyph", "tiny-corner"]),
+            prepare=_t.prepare_stacked_homoglyph_tiny_corner,
+            min_size=(32, 32),
+            provenance=PROVENANCE_STACKED,
+        ),
     )
 }
 
@@ -182,3 +205,25 @@ def generate_image(technique_id: str, instruction_text: str, size: Size = DEFAUL
     size = validate_size(size)
     require_min_size(size, technique.min_size, technique_id)
     return technique.generate(instruction_text, size, base_image, seed, font_path)
+
+
+def generate_image_with_bbox(technique_id: str, instruction_text: str, size: Size = DEFAULT_SIZE,
+                              base_image=None, seed: Optional[int] = None,
+                              font_path: Optional[str] = None):
+    """Like `generate_image`, but also returns where the instruction landed.
+
+    Returns `(image, bbox)`. `bbox` is `(left, top, right, bottom)` in pixel
+    coordinates, or `None` when there is nothing to localize (an empty
+    instruction, or a technique/size combination that ended up drawing
+    nothing visible). Computed by diffing the requested rendering against the
+    same technique rendered with no instruction at all, rather than trusting
+    any one generator to report where it drew - the same approach
+    `render --all` uses for the manifest's `location` field, so `bbox` here
+    always matches what that manifest would say for the same inputs.
+    """
+    image = generate_image(technique_id, instruction_text, size, base_image, seed, font_path)
+    if not instruction_text:
+        return image, None
+    image_without = generate_image(technique_id, "", size, base_image, seed, font_path)
+    bbox = ImageChops.difference(image, image_without).getbbox()
+    return image, bbox
