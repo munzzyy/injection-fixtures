@@ -25,4 +25,6 @@ Include what you found, how to reproduce it, and the impact you'd expect.
 
 ## Supported versions
 
-Fixes land on the latest tagged version; there's no backport policy.
+Nothing has been tagged or released yet, so fixes land on `main`. Once
+there are releases, a fix goes out in the next one; there's no backport
+policy.

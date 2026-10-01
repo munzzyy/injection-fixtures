@@ -34,6 +34,27 @@ jobs:
         run: |
           python -m zipfile -l dist/*.whl | grep -q "injection_fixtures/fonts/InjectionFixturesSans.ttf"
           python -m zipfile -l dist/*.whl | grep -q "injection_fixtures/py.typed"
+      - name: Check the tag matches the package version
+        # A dispatch from a branch, or a tag that disagrees with __version__,
+        # would publish a version nobody tagged. PyPI never frees a version.
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::release from a v* tag, not from $GITHUB_REF_TYPE $GITHUB_REF_NAME"
+            exit 1
+          fi
+          version=$(unzip -p dist/*.whl '*.dist-info/METADATA' | sed -n 's/^Version: //p')
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the wheel's version $version"
+            exit 1
+          fi
+      - name: Install the wheel and render a corpus with it
+        # From outside the checkout, so the import comes from the wheel.
+        run: |
+          cd "$RUNNER_TEMP"
+          python -m venv wheel-venv
+          wheel-venv/bin/pip install "$GITHUB_WORKSPACE"/dist/*.whl pytest
+          wheel-venv/bin/injection-fixtures render --all --out corpus
+          wheel-venv/bin/python -c 'import injection_fixtures.plugin'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist

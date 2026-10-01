@@ -1,0 +1,5 @@
+include CHANGELOG.md CONTRIBUTING.md SECURITY.md
+include tests/__init__.py tests/conftest.py
+include benchmark/*.py
+recursive-include docs *.md
+include tools/build_font.py

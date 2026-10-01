@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "injection-fixtures"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Known visual prompt-injection payloads packaged as pytest fixtures, so a screenshot- or computer-use agent can be tested against them in CI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -40,6 +40,9 @@ injection-fixtures = "injection_fixtures.cli:main"
 
 [project.entry-points.pytest11]
 injection_fixtures = "injection_fixtures.plugin"
+
+[tool.setuptools.dynamic]
+version = { attr = "injection_fixtures.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["injection_fixtures*"]
