@@ -411,5 +411,3 @@ brings new visual chrome lands with a control for it in the same PR.
 ## Support
 
 If these fixtures caught a regression in your agent's defenses, [sponsoring](https://github.com/sponsors/munzzyy) is what keeps the corpus growing.
-</content>
-</invoke>

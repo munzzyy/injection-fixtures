@@ -70,4 +70,3 @@ redistribution, and shipped with its license text next to it.
 ## License
 
 By opening a PR you agree your contribution is offered under the project's GPL-3.0-or-later license.
-</content>
