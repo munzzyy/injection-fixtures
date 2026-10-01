@@ -133,8 +133,9 @@ all three. `kind` is `technique` or `benign`, and `ocr_expected` and
 control), so you can split a catch rate without a second lookup.
 
 `corpus.json` records how the corpus was made: the injection-fixtures and
-Pillow versions, the size, the seed and the `--font` value. The PNG bytes
-depend on the Pillow version that drew them, so keep it with the images.
+Pillow versions, the size, the seed, the `--font` value and the sha256 of
+`--base-image` if there was one. The PNG bytes depend on the Pillow version
+that drew them, so keep it with the images.
 
 `injection-fixtures list --json` prints the catalog itself as a JSON array,
 one object per technique and control with its `id`, `name`, `kind`,
@@ -155,6 +156,13 @@ Other flags worth knowing:
   box edge) differ between Pillow versions.
 - `--size WxH` sets the canvas. Techniques refuse a canvas too small to fit
   their instruction rather than handing back an image with nothing in it.
+- `--base-image PATH` draws onto your own image, a screenshot of your app
+  for example, instead of the default background. The output keeps the
+  image's size unless you pass `--size`, which scales it. With `--all` every
+  technique and control goes onto it and the manifest locations are measured
+  on it. `--benign blank` gives you the screenshot back unchanged, which is
+  the most realistic false-positive check there is. A file Pillow can't
+  open, or one that trips its decompression-bomb limit, exits 2.
 - `--font PATH` draws with a TrueType font of your choice. Pass `--font
   unicode` for the font this package vendors, which is what you need for
   accented, Greek or Cyrillic text (see [Text and fonts](#text-and-fonts)).
@@ -395,8 +403,9 @@ generated test fixtures.
 - `2`: bad input. An unknown technique or benign id, an invalid `--size`, a
   canvas too small for the technique, text the font can't draw, an
   instruction that draws nothing (empty, whitespace, or only zero-width and
-  bidi control characters), or a file that couldn't be written. argparse uses
-  the same code for its own errors, such as a missing required argument.
+  bidi control characters), a `--base-image` that can't be read or is too
+  big, or a file that couldn't be written. argparse uses the same code for
+  its own errors, such as a missing required argument.
 
 ## Contributing
 

@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
 import PIL
+from PIL import Image
 
 from . import __version__
-from ._util import MAX_DIMENSION, MAX_TEXT_LEN, UNICODE_FONT
+from ._util import DEFAULT_SIZE, MAX_DIMENSION, MAX_TEXT_LEN, UNICODE_FONT
 from .benign import BENIGN_CATALOG, generate_benign_image
 from .catalog import CATALOG, generate_image, generate_image_with_bbox, rendered_instruction
 
@@ -48,8 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--text", default=DEFAULT_INSTRUCTION,
                          help="instruction text to embed (ignored with --benign; applied to "
                               "every technique with --all)")
-    render.add_argument("--size", default="600x400", metavar="WxH",
-                         help="image size, e.g. 600x400 (default: 600x400)")
+    render.add_argument("--size", default=None, metavar="WxH",
+                         help="image size, e.g. 600x400 (default: 600x400, or the size of "
+                              "--base-image)")
+    render.add_argument("--base-image", default=None, metavar="PATH",
+                         help="draw onto this image, such as a screenshot of your own UI, "
+                              "instead of the default background")
     render.add_argument("--seed", type=int, default=None, metavar="INT",
                          help="seed for the noise backgrounds, so a run is reproducible")
     render.add_argument("--font", default=None, metavar="PATH",
@@ -79,6 +86,36 @@ def _parse_size(value: str) -> Optional[Tuple[int, int]]:
         print(f"injection-fixtures: --size must be between 1 and {MAX_DIMENSION} in each dimension", file=sys.stderr)
         return None
     return (w, h)
+
+
+def _load_base_image(path: str, size_given: bool) -> Optional[Image.Image]:
+    """Open `--base-image` as RGB, or print why not to stderr and return None
+    so the caller can exit 2.
+    """
+    try:
+        with warnings.catch_warnings():
+            # Pillow only warns between MAX_IMAGE_PIXELS and twice that; refuse both.
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(path) as opened:
+                w, h = opened.size
+                if not size_given and (w > MAX_DIMENSION or h > MAX_DIMENSION):
+                    print(f"injection-fixtures: --base-image is {w}x{h}, larger than {MAX_DIMENSION} "
+                          f"on a side; pass --size to scale it down", file=sys.stderr)
+                    return None
+                return opened.convert("RGB")
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as e:
+        print(f"injection-fixtures: refusing --base-image {path}: {e}", file=sys.stderr)
+    except (OSError, ValueError) as e:
+        print(f"injection-fixtures: could not read --base-image {path}: {e}", file=sys.stderr)
+    return None
+
+
+def _sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _resolve_font(value: Optional[str]) -> Optional[str]:
@@ -144,14 +181,16 @@ def _empty_text() -> int:
 
 
 def _render_corpus(outdir: Path, size: Tuple[int, int], text: str, seed: Optional[int],
-                    font_path: Optional[str], font_arg: Optional[str]):
+                    font_path: Optional[str], font_arg: Optional[str],
+                    base_image: Optional[Image.Image] = None, base_sha256: Optional[str] = None):
     """Write every technique, every benign control, manifest.json and
     corpus.json to `outdir`, and return the paths written in order.
     """
     manifest = []
     written = []
     for technique_id in sorted(CATALOG):
-        image, bbox = generate_image_with_bbox(technique_id, text, size, seed=seed, font_path=font_path)
+        image, bbox = generate_image_with_bbox(technique_id, text, size, base_image=base_image,
+                                               seed=seed, font_path=font_path)
         path = outdir / f"{technique_id}.png"
         image.save(path, format="PNG")
         written.append(path)
@@ -172,7 +211,7 @@ def _render_corpus(outdir: Path, size: Tuple[int, int], text: str, seed: Optiona
         })
 
     for sample_id in sorted(BENIGN_CATALOG):
-        image = generate_benign_image(sample_id, size, seed=seed, font_path=font_path)
+        image = generate_benign_image(sample_id, size, base_image=base_image, seed=seed, font_path=font_path)
         path = outdir / f"{sample_id}.png"
         image.save(path, format="PNG")
         written.append(path)
@@ -200,6 +239,7 @@ def _render_corpus(outdir: Path, size: Tuple[int, int], text: str, seed: Optiona
         "size": list(size),
         "seed": seed,
         "font": font_arg,
+        "base_image_sha256": base_sha256,
     }
     corpus_path = outdir / "corpus.json"
     with open(corpus_path, "w", encoding="utf-8") as f:
@@ -209,7 +249,7 @@ def _render_corpus(outdir: Path, size: Tuple[int, int], text: str, seed: Optiona
 
 
 def _cmd_render_all(args: argparse.Namespace, size: Tuple[int, int], outdir: Path,
-                     font_path: Optional[str]) -> int:
+                     font_path: Optional[str], base_image: Optional[Image.Image]) -> int:
     """Render every technique and every benign control to `outdir` in one call,
     one PNG per id. Built for benchmarking a detector against the whole
     corpus at once instead of scripting `render` per id by hand (see
@@ -232,7 +272,9 @@ def _cmd_render_all(args: argparse.Namespace, size: Tuple[int, int], outdir: Pat
     try:
         outdir.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".injection-fixtures-", dir=outdir.parent))
-        staged = _render_corpus(staging, size, text, args.seed, font_path, args.font)
+        base_sha256 = _sha256(args.base_image) if base_image is not None else None
+        staged = _render_corpus(staging, size, text, args.seed, font_path, args.font,
+                                base_image, base_sha256)
         outdir.mkdir(parents=True, exist_ok=True)
         written = []
         for path in staged:
@@ -254,14 +296,21 @@ def _cmd_render_all(args: argparse.Namespace, size: Tuple[int, int], outdir: Pat
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
-    size = _parse_size(args.size)
+    size = _parse_size(args.size) if args.size is not None else DEFAULT_SIZE
     if size is None:
         return 2
+    base_image = None
+    if args.base_image is not None:
+        base_image = _load_base_image(args.base_image, size_given=args.size is not None)
+        if base_image is None:
+            return 2
+        if args.size is None:
+            size = base_image.size
     out = Path(args.out)
     font_path = _resolve_font(args.font)
 
     if args.all:
-        return _cmd_render_all(args, size, out, font_path)
+        return _cmd_render_all(args, size, out, font_path, base_image)
 
     try:
         if args.technique is not None:
@@ -272,13 +321,15 @@ def _cmd_render(args: argparse.Namespace) -> int:
             text = args.text[:MAX_TEXT_LEN]
             if not text:
                 return _empty_text()
-            image = generate_image(args.technique, text, size, seed=args.seed, font_path=font_path)
+            image = generate_image(args.technique, text, size, base_image=base_image, seed=args.seed,
+                                   font_path=font_path)
         else:
             if args.benign not in BENIGN_CATALOG:
                 print(f"injection-fixtures: unknown benign sample id: {args.benign!r}", file=sys.stderr)
                 print(f"known ids: {', '.join(sorted(BENIGN_CATALOG))}", file=sys.stderr)
                 return 2
-            image = generate_benign_image(args.benign, size, seed=args.seed, font_path=font_path)
+            image = generate_benign_image(args.benign, size, base_image=base_image, seed=args.seed,
+                                          font_path=font_path)
     except ValueError as e:
         print(f"injection-fixtures: {e}", file=sys.stderr)
         return 2

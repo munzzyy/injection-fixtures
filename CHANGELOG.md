@@ -48,6 +48,8 @@ been tagged or published yet, so everything so far sits under Unreleased.
   --all` writes the whole corpus with a `manifest.json` of ground truth and
   a `corpus.json` that records the package and Pillow versions.
 - `render --all` moves nothing into `--out` until every image has rendered.
+- `--base-image` draws a render or the whole corpus onto your own
+  screenshot, at the screenshot's size unless `--size` says otherwise.
 - `--seed` makes a run byte-reproducible with the same Pillow version.
 - Bad input exits 2 with a message instead of a traceback.
 

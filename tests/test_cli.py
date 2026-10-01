@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -11,9 +12,10 @@ import sys
 
 import PIL
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from injection_fixtures import __version__, cli
+from injection_fixtures._util import MAX_DIMENSION
 from injection_fixtures.benign import BENIGN_CATALOG
 from injection_fixtures.catalog import CATALOG, generate_image_with_bbox, rendered_instruction
 
@@ -534,3 +536,112 @@ def test_list_json_has_one_object_per_technique_and_control():
             "provenance": None,
             "min_size": list(sample.min_size),
         }
+
+
+def _screenshot(path, size=(420, 300)):
+    shot = Image.new("RGB", size, (236, 239, 244))
+    draw = ImageDraw.Draw(shot)
+    draw.rectangle((0, 0, size[0], 36), fill=(40, 44, 52))
+    draw.rectangle((24, 60, size[0] - 24, 140), fill=(255, 255, 255), outline=(200, 200, 210))
+    shot.save(path, format="PNG")
+    return path
+
+
+def test_render_technique_on_a_base_image_takes_its_size(tmp_path):
+    shot = _screenshot(tmp_path / "shot.png")
+    out_path = tmp_path / "p.png"
+    code, out, _ = _run(["render", "--technique", "low-contrast", "--base-image", str(shot), "--out", str(out_path)])
+    assert code == 0
+    assert "(420x300)" in out
+    with Image.open(out_path) as rendered, Image.open(shot) as base:
+        assert rendered.size == (420, 300)
+        assert rendered.convert("RGB").tobytes() != base.convert("RGB").tobytes()
+        # Away from the text the screenshot shows through.
+        assert rendered.convert("RGB").getpixel((419, 299)) == (236, 239, 244)
+
+
+def test_render_on_a_base_image_honors_size(tmp_path):
+    shot = _screenshot(tmp_path / "shot.png")
+    out_path = tmp_path / "p.png"
+    code, _, _ = _run(["render", "--technique", "low-contrast", "--base-image", str(shot),
+                       "--size", "300x200", "--out", str(out_path)])
+    assert code == 0
+    with Image.open(out_path) as rendered:
+        assert rendered.size == (300, 200)
+
+
+def test_render_blank_on_a_base_image_is_the_base_image(tmp_path):
+    shot = _screenshot(tmp_path / "shot.png")
+    out_path = tmp_path / "b.png"
+    code, _, _ = _run(["render", "--benign", "blank", "--base-image", str(shot), "--out", str(out_path)])
+    assert code == 0
+    with Image.open(out_path) as rendered, Image.open(shot) as base:
+        assert rendered.convert("RGB").tobytes() == base.convert("RGB").tobytes()
+
+
+def test_render_all_on_a_base_image(tmp_path):
+    shot = _screenshot(tmp_path / "shot.png")
+    outdir = tmp_path / "d"
+    code, out, _ = _run(["render", "--all", "--base-image", str(shot), "--seed", "3", "--out", str(outdir)])
+    assert code == 0
+    assert f"wrote {len(CATALOG) + len(BENIGN_CATALOG)} images (420x300)" in out
+    with Image.open(shot) as opened:
+        base = opened.convert("RGB")
+    manifest = json.loads((outdir / "manifest.json").read_text(encoding="utf-8"))
+    for entry in manifest:
+        with Image.open(outdir / entry["filename"]) as rendered:
+            assert rendered.size == (420, 300)
+        if entry["kind"] == "technique":
+            _, bbox = generate_image_with_bbox(entry["technique"], cli.DEFAULT_INSTRUCTION, (420, 300),
+                                               base_image=base, seed=3)
+            assert entry["location"] == list(bbox)
+    corpus = json.loads((outdir / "corpus.json").read_text(encoding="utf-8"))
+    assert corpus["size"] == [420, 300]
+    assert corpus["base_image_sha256"] == hashlib.sha256(shot.read_bytes()).hexdigest()
+
+
+def test_render_all_without_a_base_image_records_none(tmp_path):
+    code, _, _ = _run(["render", "--all", "--out", str(tmp_path / "d")])
+    assert code == 0
+    corpus = json.loads((tmp_path / "d" / "corpus.json").read_text(encoding="utf-8"))
+    assert corpus["base_image_sha256"] is None
+
+
+def _refuses_base_image(tmp_path, base_path, extra=()):
+    for argv in (["--technique", "low-contrast", "--out", str(tmp_path / "x.png")],
+                 ["--all", "--out", str(tmp_path / "corpus")]):
+        before = sorted(p.name for p in tmp_path.iterdir())
+        code, _, err = _run(["render", *argv, "--base-image", str(base_path), *extra])
+        assert code == 2
+        assert "--base-image" in err
+        assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+def test_render_refuses_a_missing_base_image(tmp_path):
+    _refuses_base_image(tmp_path, tmp_path / "nope.png")
+
+
+def test_render_refuses_a_base_image_that_is_not_an_image(tmp_path):
+    not_an_image = tmp_path / "notes.png"
+    not_an_image.write_text("not a png", encoding="utf-8")
+    _refuses_base_image(tmp_path, not_an_image)
+
+
+@pytest.mark.parametrize("max_pixels", [100, 300])
+def test_render_refuses_a_decompression_bomb_base_image(tmp_path, monkeypatch, max_pixels):
+    # 20x20 is 400 pixels: past twice 100 Pillow raises, past 300 it only warns.
+    shot = tmp_path / "shot.png"
+    Image.new("RGB", (20, 20), (236, 239, 244)).save(shot, format="PNG")
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", max_pixels)
+    _refuses_base_image(tmp_path, shot)
+
+
+def test_render_refuses_a_base_image_over_the_size_limit_unless_size_is_given(tmp_path):
+    shot = _screenshot(tmp_path / "wide.png", size=(MAX_DIMENSION + 1, 64))
+    _refuses_base_image(tmp_path, shot)
+    out_path = tmp_path / "p.png"
+    code, _, _ = _run(["render", "--technique", "low-contrast", "--base-image", str(shot),
+                       "--size", "600x64", "--out", str(out_path)])
+    assert code == 0
+    with Image.open(out_path) as rendered:
+        assert rendered.size == (600, 64)
