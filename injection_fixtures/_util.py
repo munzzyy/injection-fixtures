@@ -185,6 +185,16 @@ def canvas(size: Tuple[int, int], base_image: Optional[Image.Image], fill="white
     return Image.new("RGBA", size, fill)
 
 
+# Each cached entry is w*h bytes, so eight entries stay under 32 MiB.
+_NOISE_CACHE_MAX_PIXELS = 2048 * 2048
+
+
+@functools.lru_cache(maxsize=8)
+def _noise_bytes(w: int, h: int, sigma: float, seed: int) -> bytes:
+    rng = random.Random(seed)
+    return bytes(min(255, max(0, int(rng.gauss(128, sigma)))) for _ in range(w * h))
+
+
 def noise_background(size: Tuple[int, int], sigma: int = 40,
                      seed: Optional[int] = None) -> Image.Image:
     """A grayscale-noise 'photo-like' busy background, RGBA.
@@ -192,12 +202,15 @@ def noise_background(size: Tuple[int, int], sigma: int = 40,
     Uses a seeded `random.Random` gaussian around mid-grey rather than
     `Image.effect_noise`, which reseeds from system randomness on every call
     and can't be pinned. Same `seed` and `sigma` give the same pixels.
+
+    The pixels are cached as immutable bytes per (size, sigma, seed), and
+    every call builds a new image from them, so a caller that draws on its
+    background never changes the next one.
     """
     actual_seed = seed if seed is not None else DEFAULT_SEED
-    rng = random.Random(actual_seed)
     w, h = size
-    data = bytes(min(255, max(0, int(rng.gauss(128, sigma)))) for _ in range(w * h))
-    return Image.frombytes("L", size, data).convert("RGBA")
+    make = _noise_bytes if w * h <= _NOISE_CACHE_MAX_PIXELS else _noise_bytes.__wrapped__
+    return Image.frombytes("L", (w, h), make(w, h, sigma, actual_seed)).convert("RGBA")
 
 
 def checkerboard(

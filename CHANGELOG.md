@@ -37,6 +37,8 @@ been tagged or published yet, so everything so far sits under Unreleased.
 - `generate_image_with_bbox` is exported from the package.
 - Every generator takes a `base_image`, a `seed` and a `font_path`.
 - The package ships `py.typed`.
+- Noise backgrounds are cached, so caption-chrome, low-opacity and the
+  noisy controls render about ten times faster after the first call.
 
 ### CLI
 

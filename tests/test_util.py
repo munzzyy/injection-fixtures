@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from PIL import Image, ImageDraw
 
+from injection_fixtures import _util
 from injection_fixtures._util import (
     MAX_DIMENSION,
     MAX_TEXT_LEN,
@@ -113,6 +114,33 @@ def test_noise_background_is_byte_reproducible():
 def test_noise_background_varies_with_seed():
     assert noise_background((80, 60), sigma=40, seed=1).tobytes() != \
         noise_background((80, 60), sigma=40, seed=2).tobytes()
+
+
+def test_noise_background_hands_every_caller_its_own_image():
+    first = noise_background((80, 60), sigma=40, seed=5)
+    before = first.tobytes()
+    first.paste((255, 0, 0, 255), (0, 0, 80, 60))
+    assert noise_background((80, 60), sigma=40, seed=5).tobytes() == before
+
+
+def test_noise_background_is_cached_per_size_sigma_and_seed():
+    _util._noise_bytes.cache_clear()
+    noise_background((80, 60), sigma=40, seed=5)
+    noise_background((80, 60), sigma=40, seed=5)
+    noise_background((80, 60), sigma=41, seed=5)
+    noise_background((80, 60), sigma=40, seed=6)
+    noise_background((81, 60), sigma=40, seed=5)
+    info = _util._noise_bytes.cache_info()
+    assert (info.hits, info.misses) == (1, 4)
+    assert info.maxsize <= 16
+
+
+def test_noise_background_skips_the_cache_for_a_huge_canvas(monkeypatch):
+    monkeypatch.setattr(_util, "_NOISE_CACHE_MAX_PIXELS", 80 * 60 - 1)
+    _util._noise_bytes.cache_clear()
+    first = noise_background((80, 60), sigma=40, seed=5)
+    assert noise_background((80, 60), sigma=40, seed=5).tobytes() == first.tobytes()
+    assert _util._noise_bytes.cache_info().currsize == 0
 
 
 def test_checkerboard_produces_requested_size():
