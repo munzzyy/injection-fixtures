@@ -7,8 +7,8 @@ name = "injection-fixtures"
 dynamic = ["version"]
 description = "Known visual prompt-injection payloads packaged as pytest fixtures, so a screenshot- or computer-use agent can be tested against them in CI."
 readme = "README.md"
-license = "GPL-3.0-or-later"
-license-files = ["LICENSE"]
+license = "GPL-3.0-or-later AND Bitstream-Vera"
+license-files = ["LICENSE", "injection_fixtures/fonts/LICENSE-DejaVu.txt"]
 requires-python = ">=3.9"
 authors = [{ name = "Cole Munz" }]
 dependencies = ["Pillow>=10.1"]

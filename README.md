@@ -417,6 +417,8 @@ brings new visual chrome lands with a control for it in the same PR.
 
 [GPL-3.0-or-later](LICENSE). You can use, study, change and share it. If you distribute a copy or a modified version, it has to stay under the GPL and come with its source. Earlier commits were under MIT.
 
+The bundled font in `injection_fixtures/fonts/` is not GPL. It is a renamed subset of DejaVu Sans and keeps its own Bitstream Vera and Arev terms, which ship next to it in `LICENSE-DejaVu.txt`.
+
 ## Support
 
 If these fixtures caught a regression in your agent's defenses, [sponsoring](https://github.com/sponsors/munzzyy) is what keeps the corpus growing.

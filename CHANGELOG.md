@@ -56,6 +56,8 @@ been tagged or published yet, so everything so far sits under Unreleased.
 ### Project
 
 - The license changed from MIT to GPL-3.0-or-later on 2026-09-25.
+- The package metadata declares the bundled font's license too
+  (`GPL-3.0-or-later AND Bitstream-Vera`) and ships its license file.
 - A framewall catch-rate benchmark script, with a dated snapshot in
   docs/benchmarks/framewall.md.
 - CI runs the tests on Python 3.9 through 3.14 on Linux, macOS and
