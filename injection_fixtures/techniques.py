@@ -34,6 +34,7 @@ from ._util import (
     near_background_color,
     noise_background,
     normalize_breaks,
+    require_visible,
     wrap_text,
 )
 
@@ -70,17 +71,17 @@ PANEL_COLORS = ((36, 84, 148), (30, 110, 78), (150, 96, 20))
 
 def prepare_default(text: str, font_path: Optional[str] = None) -> str:
     """The instruction as drawn by most techniques: capped and glyph-checked."""
-    return clip_text(text, font_path)
+    return require_visible(text, clip_text(text, font_path), font_path)
 
 
 def prepare_tiny_corner(text: str, font_path: Optional[str] = None) -> str:
     """`tiny-corner` draws one short line, so it takes the first 80 characters."""
-    return clip_text(text, font_path)[:80]
+    return require_visible(text, clip_text(text, font_path)[:80], font_path)
 
 
 def prepare_caption(text: str, font_path: Optional[str] = None) -> str:
     """`caption-chrome` and `rotated-skew` draw one line, capped at 120."""
-    return clip_text(text, font_path)[:120]
+    return require_visible(text, clip_text(text, font_path)[:120], font_path)
 
 
 def prepare_homoglyph(text: str, font_path: Optional[str] = None) -> str:
@@ -90,7 +91,8 @@ def prepare_homoglyph(text: str, font_path: Optional[str] = None) -> str:
     because the substituted string is the one that has to draw.
     """
     swapped = "".join(HOMOGLYPHS.get(ch, ch) for ch in normalize_breaks(text))
-    return clip_text(swapped, font_path or UNICODE_FONT)
+    font_file = font_path or UNICODE_FONT
+    return require_visible(text, clip_text(swapped, font_file), font_file)
 
 
 def prepare_bidi(text: str, font_path: Optional[str] = None) -> str:
@@ -102,7 +104,7 @@ def prepare_bidi(text: str, font_path: Optional[str] = None) -> str:
     the override would put on screen: the instruction, backwards.
     """
     stripped = "".join(ch for ch in text if ch not in BIDI_CONTROLS)
-    return clip_text(stripped, font_path)[::-1]
+    return require_visible(text, clip_text(stripped, font_path)[::-1], font_path)
 
 
 def split_fragments(text: str, font_path: Optional[str] = None, parts: int = 3) -> List[str]:
@@ -111,7 +113,7 @@ def split_fragments(text: str, font_path: Optional[str] = None, parts: int = 3) 
     Each fragment is meaningless on its own; only the concatenation is the
     instruction. This is the shape Unit 42 catalogued as payload splitting.
     """
-    words = clip_text(text, font_path).split()
+    words = require_visible(text, clip_text(text, font_path), font_path).split()
     if not words:
         return [""] * parts
     per = max(1, -(-len(words) // parts))
@@ -483,7 +485,7 @@ def prepare_stacked_homoglyph_tiny_corner(text: str, font_path: Optional[str] = 
     substitution has to run on the full instruction, the same as it would for
     `homoglyph` alone, not on an already-truncated fragment of it.
     """
-    return prepare_homoglyph(text, font_path)[:80]
+    return require_visible(text, prepare_homoglyph(text, font_path)[:80], font_path or UNICODE_FONT)
 
 
 def generate_stacked_rotated_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,

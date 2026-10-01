@@ -104,6 +104,12 @@ def _cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _empty_text() -> int:
+    # "" is the library's no-text baseline; from the CLI it is never a payload.
+    print("injection-fixtures: the instruction draws nothing: --text is empty", file=sys.stderr)
+    return 2
+
+
 def _render_corpus(outdir: Path, size: Tuple[int, int], text: str, seed: Optional[int],
                     font_path: Optional[str]):
     """Write every technique, every benign control and manifest.json to `outdir`,
@@ -168,6 +174,8 @@ def _cmd_render_all(args: argparse.Namespace, size: Tuple[int, int], outdir: Pat
               file=sys.stderr)
         return 2
     text = args.text[:MAX_TEXT_LEN]
+    if not text:
+        return _empty_text()
     staging = None
     try:
         outdir.parent.mkdir(parents=True, exist_ok=True)
@@ -210,6 +218,8 @@ def _cmd_render(args: argparse.Namespace) -> int:
                 print(f"known ids: {', '.join(sorted(CATALOG))}", file=sys.stderr)
                 return 2
             text = args.text[:MAX_TEXT_LEN]
+            if not text:
+                return _empty_text()
             image = generate_image(args.technique, text, size, seed=args.seed, font_path=font_path)
         else:
             if args.benign not in BENIGN_CATALOG:

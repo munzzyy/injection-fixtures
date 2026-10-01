@@ -408,3 +408,29 @@ def test_list_shows_each_technique_provenance():
     assert "in-the-wild" in out
     assert "typographic" in out
     assert "stacked" in out
+
+
+@pytest.mark.parametrize("text", ["", "   ", "\n"])
+def test_render_all_refuses_an_instruction_that_draws_nothing(tmp_path, text):
+    outdir = tmp_path / "corpus"
+    code, _, err = _run(["render", "--all", "--text", text, "--out", str(outdir)])
+    assert code == 2
+    assert "draws nothing" in err
+    assert not outdir.exists()
+    assert [p.name for p in tmp_path.iterdir()] == []
+
+
+@pytest.mark.parametrize("technique_id, text", [("white-on-white", " "), ("low-contrast", "")])
+def test_render_refuses_an_instruction_that_draws_nothing(tmp_path, technique_id, text):
+    out_path = tmp_path / "x.png"
+    code, _, err = _run(["render", "--technique", technique_id, "--text", text, "--out", str(out_path)])
+    assert code == 2
+    assert "draws nothing" in err
+    assert not out_path.exists()
+
+
+def test_render_benign_ignores_an_empty_text(tmp_path):
+    out_path = tmp_path / "control.png"
+    code, _, _ = _run(["render", "--benign", "blank", "--text", "", "--out", str(out_path)])
+    assert code == 0
+    assert out_path.exists()

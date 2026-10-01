@@ -198,8 +198,10 @@ def generate_image(technique_id: str, instruction_text: str, size: Size = DEFAUL
                     base_image=None, seed: Optional[int] = None,
                     font_path: Optional[str] = None):
     """Render one injection payload by technique id. Raises ValueError on an
-    unknown id, an invalid size, or a canvas too small to carry the payload,
-    rather than surfacing a raw KeyError or a silently empty image.
+    unknown id, an invalid size, a canvas too small to carry the payload, or
+    an instruction that draws nothing (whitespace, zero-width or bidi control
+    characters only), rather than surfacing a raw KeyError or a silently empty
+    image. An empty string is the exception: it renders the no-text baseline.
     """
     technique = _technique(technique_id)
     size = validate_size(size)

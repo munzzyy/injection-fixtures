@@ -61,6 +61,32 @@ def _font_has_glyph(ch: str, font_path: Optional[str] = None) -> bool:
     return (mask.size, bytes(mask)) != _tofu_signature(font_path)
 
 
+@functools.lru_cache(maxsize=4096)
+def _draws_ink(ch: str, font_path: Optional[str] = None) -> bool:
+    """Whether `ch` puts any pixel down. False for whitespace, and for the
+    zero-width and bidi format characters a font maps to an empty glyph.
+    """
+    if ch.isspace():
+        return False
+    return any(bytes(load_font(16, font_path).getmask(ch)))
+
+
+def require_visible(text: str, drawn: str, font_path: Optional[str] = None) -> str:
+    """Return `drawn`, or raise if a non-empty `text` came out as nothing visible.
+
+    `drawn` is the string a technique actually puts on the canvas for `text`.
+    Whitespace, a lone U+200B or a bidi control the technique strips all leave
+    an image identical to the no-text render, which a detector passes for free.
+    An empty `text` is the deliberate no-text baseline and is let through.
+    """
+    if text and not any(_draws_ink(ch, font_path) for ch in set(drawn)):
+        raise ValueError(
+            f"the instruction draws nothing: {text[:40]!r} is whitespace or "
+            f"characters with no visible glyph, so the image would carry no payload"
+        )
+    return drawn
+
+
 def normalize_breaks(text: str) -> str:
     """Collapse every line break in `text` to a single space."""
     # CRLF first, so a Windows line ending becomes one space and not two.

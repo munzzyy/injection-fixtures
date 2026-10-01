@@ -326,9 +326,10 @@ generated test fixtures.
 
 - `0`: the command succeeded.
 - `2`: bad input. An unknown technique or benign id, an invalid `--size`, a
-  canvas too small for the technique, text the font can't draw, or a file
-  that couldn't be written. argparse uses the same code for its own errors,
-  such as a missing required argument.
+  canvas too small for the technique, text the font can't draw, an
+  instruction that draws nothing (empty, whitespace, or only zero-width and
+  bidi control characters), or a file that couldn't be written. argparse uses
+  the same code for its own errors, such as a missing required argument.
 
 ## Contributing
 
