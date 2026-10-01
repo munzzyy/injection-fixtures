@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
+import PIL
+
 from . import __version__
 from ._util import MAX_DIMENSION, MAX_TEXT_LEN, UNICODE_FONT
 from .benign import BENIGN_CATALOG, generate_benign_image
@@ -31,7 +33,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"injection-fixtures {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("list", help="list every technique and benign control sample")
+    list_cmd = sub.add_parser("list", help="list every technique and benign control sample")
+    list_cmd.add_argument("--json", action="store_true",
+                          help="print a JSON array, one object per technique and control")
 
     render = sub.add_parser("render", help="render one payload to a PNG file")
     target = render.add_mutually_exclusive_group(required=True)
@@ -86,7 +90,36 @@ def _resolve_font(value: Optional[str]) -> Optional[str]:
     return value
 
 
+def _list_json() -> int:
+    entries = [
+        {
+            "id": t.id,
+            "name": t.name,
+            "kind": "technique",
+            "ocr_expected": t.ocr_expected,
+            "provenance": t.provenance,
+            "min_size": list(t.min_size),
+        }
+        for t in sorted(CATALOG.values(), key=lambda t: t.id)
+    ]
+    entries += [
+        {
+            "id": s.id,
+            "name": s.name,
+            "kind": "benign",
+            "ocr_expected": None,
+            "provenance": None,
+            "min_size": list(s.min_size),
+        }
+        for s in sorted(BENIGN_CATALOG.values(), key=lambda s: s.id)
+    ]
+    print(json.dumps(entries, indent=2, ensure_ascii=False))
+    return 0
+
+
 def _cmd_list(args: argparse.Namespace) -> int:
+    if args.json:
+        return _list_json()
     # Column width is the longest id actually in the catalog, not a hardcoded
     # guess, so a new technique with a longer id widens the column instead of
     # breaking alignment.
@@ -111,9 +144,9 @@ def _empty_text() -> int:
 
 
 def _render_corpus(outdir: Path, size: Tuple[int, int], text: str, seed: Optional[int],
-                    font_path: Optional[str]):
-    """Write every technique, every benign control and manifest.json to `outdir`,
-    and return the paths written in order.
+                    font_path: Optional[str], font_arg: Optional[str]):
+    """Write every technique, every benign control, manifest.json and
+    corpus.json to `outdir`, and return the paths written in order.
     """
     manifest = []
     written = []
@@ -133,6 +166,9 @@ def _render_corpus(outdir: Path, size: Tuple[int, int], text: str, seed: Optiona
             # correct detection wrong.
             "rendered_text": rendered_instruction(technique_id, text, font_path),
             "location": bbox,
+            "kind": "technique",
+            "ocr_expected": CATALOG[technique_id].ocr_expected,
+            "provenance": CATALOG[technique_id].provenance,
         })
 
     for sample_id in sorted(BENIGN_CATALOG):
@@ -147,12 +183,28 @@ def _render_corpus(outdir: Path, size: Tuple[int, int], text: str, seed: Optiona
             "instruction": None,
             "rendered_text": None,
             "location": None,
+            "kind": "benign",
+            "ocr_expected": None,
+            "provenance": None,
         })
 
     manifest_path = outdir / "manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
     written.append(manifest_path)
+
+    # The PNG bytes depend on the Pillow that drew them, so a corpus says which.
+    corpus = {
+        "injection_fixtures": __version__,
+        "pillow": PIL.__version__,
+        "size": list(size),
+        "seed": seed,
+        "font": font_arg,
+    }
+    corpus_path = outdir / "corpus.json"
+    with open(corpus_path, "w", encoding="utf-8") as f:
+        json.dump(corpus, f, indent=2)
+    written.append(corpus_path)
     return written
 
 
@@ -180,7 +232,7 @@ def _cmd_render_all(args: argparse.Namespace, size: Tuple[int, int], outdir: Pat
     try:
         outdir.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".injection-fixtures-", dir=outdir.parent))
-        staged = _render_corpus(staging, size, text, args.seed, font_path)
+        staged = _render_corpus(staging, size, text, args.seed, font_path, args.font)
         outdir.mkdir(parents=True, exist_ok=True)
         written = []
         for path in staged:
@@ -196,7 +248,7 @@ def _cmd_render_all(args: argparse.Namespace, size: Tuple[int, int], outdir: Pat
     finally:
         if staging is not None:
             shutil.rmtree(staging, ignore_errors=True)
-    images = len(written) - 1  # manifest.json is not an image
+    images = sum(1 for path in written if path.suffix == ".png")
     print(f"wrote {images} images ({size[0]}x{size[1]}) to {outdir}")
     return 0
 

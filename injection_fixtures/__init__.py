@@ -15,7 +15,13 @@ from __future__ import annotations
 
 from ._util import UNICODE_FONT
 from .benign import BENIGN_CATALOG, generate_benign_image, list_benign_samples
-from .catalog import CATALOG, generate_image, list_techniques, rendered_instruction
+from .catalog import (
+    CATALOG,
+    generate_image,
+    generate_image_with_bbox,
+    list_techniques,
+    rendered_instruction,
+)
 from .model import BenignPayload, BenignSample, InjectionPayload, Technique
 
 __version__ = "0.2.0"
@@ -29,6 +35,7 @@ __all__ = [
     "InjectionPayload",
     "BenignPayload",
     "generate_image",
+    "generate_image_with_bbox",
     "generate_benign_image",
     "list_techniques",
     "list_benign_samples",

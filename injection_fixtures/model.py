@@ -79,6 +79,12 @@ class InjectionPayload:
     consumer scoring localization gets the region that is actually different
     because of the payload, not a guess based on where the technique usually
     draws.
+
+    `rendered_text` is the string actually in the pixels, the same value the
+    manifest's `rendered_text` carries (see `rendered_instruction`).
+    `provenance` is the technique's provenance label. Both default to `None`
+    and come after `bbox`, so positional construction from older code keeps
+    working.
     """
 
     technique_id: str
@@ -87,6 +93,8 @@ class InjectionPayload:
     ocr_expected: bool
     image: Image.Image
     bbox: Optional[BBox] = None
+    rendered_text: Optional[str] = None
+    provenance: Optional[str] = None
 
 
 @dataclass(frozen=True)

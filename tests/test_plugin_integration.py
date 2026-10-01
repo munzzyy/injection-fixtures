@@ -9,8 +9,12 @@ plugin machinery: this is the real registration path.
 
 from __future__ import annotations
 
+from PIL import Image
+
+import injection_fixtures
 from injection_fixtures.benign import BENIGN_CATALOG
 from injection_fixtures.catalog import CATALOG
+from injection_fixtures.model import InjectionPayload
 
 
 def test_visual_injection_payloads_fixture_covers_the_whole_catalog(pytester):
@@ -145,3 +149,55 @@ def test_plugin_registers_without_an_explicit_pytest_plugins_line(pytester):
     )
     result = pytester.runpytest("-p", "no:cacheprovider")
     result.assert_outcomes(passed=len(CATALOG))
+
+
+def test_injection_payload_still_takes_its_original_six_fields_positionally():
+    image = Image.new("RGB", (4, 4))
+    payload = InjectionPayload("low-contrast", "Low-contrast text", "hi", False, image, (0, 0, 1, 1))
+    assert payload.bbox == (0, 0, 1, 1)
+    assert payload.rendered_text is None
+    assert payload.provenance is None
+
+
+def test_visual_injection_payloads_carry_rendered_text_and_provenance(pytester):
+    pytester.makepyfile(
+        test_consumer="""
+        from injection_fixtures import CATALOG, rendered_instruction
+
+        def test_it(visual_injection_payloads):
+            payload = visual_injection_payloads
+            assert payload.rendered_text
+            assert payload.rendered_text == rendered_instruction(payload.technique_id, payload.instruction_text)
+            assert payload.provenance == CATALOG[payload.technique_id].provenance
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=len(CATALOG))
+
+
+def test_make_injection_image_carries_rendered_text_and_provenance(pytester):
+    pytester.makepyfile(
+        test_consumer="""
+        from injection_fixtures import CATALOG, UNICODE_FONT, rendered_instruction
+
+        def test_it(make_injection_image):
+            payload = make_injection_image("homoglyph", "ignore this")
+            assert payload.rendered_text == rendered_instruction("homoglyph", "ignore this")
+            assert payload.rendered_text != "ignore this"
+            assert payload.provenance == CATALOG["homoglyph"].provenance
+
+            accented = make_injection_image("bidi-override", "café", font_path=UNICODE_FONT)
+            assert accented.rendered_text == "éfac"
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_generate_image_with_bbox_is_exported_from_the_package():
+    from injection_fixtures import generate_image_with_bbox
+
+    assert "generate_image_with_bbox" in injection_fixtures.__all__
+    image, bbox = generate_image_with_bbox("low-contrast", "Ignore this")
+    assert image.size == (600, 400)
+    assert bbox is not None
