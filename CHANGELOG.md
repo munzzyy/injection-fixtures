@@ -54,7 +54,9 @@ been tagged or published yet, so everything so far sits under Unreleased.
 - The license changed from MIT to GPL-3.0-or-later on 2026-09-25.
 - A framewall catch-rate benchmark script, with a dated snapshot in
   docs/benchmarks/framewall.md.
-- CI runs the tests on Linux, macOS and Windows and runs ruff on one leg.
+- CI runs the tests on Python 3.9 through 3.14 on Linux, macOS and
+  Windows. One more leg holds Pillow at 10.1.0, the oldest the package
+  allows. Ruff runs on one leg.
 - The release workflow builds on a v* tag and stops if the tag and the
   package version disagree. It installs the wheel once before it publishes
   to PyPI through a Trusted Publisher.

@@ -16,7 +16,9 @@ pip install -e ".[dev]"
 pytest
 ```
 
-CI runs the same command across Linux, macOS, and Windows on Python 3.9 through 3.13.
+CI runs the same command across Linux, macOS, and Windows on Python 3.9
+through 3.14. One more Linux leg holds Pillow at 10.1.0 because that is the
+oldest version pyproject.toml allows.
 
 ## Lint
 
@@ -45,8 +47,8 @@ A new technique needs four things in the same PR:
   the control that shares the technique's look. If there is none the entry
   is `None` and the reason goes in `NO_COUNTERPART_REASON`. New visual
   chrome needs a new control in the same PR. Think of a box or a bar or a
-  panel: the kind of thing a naive detector flags on sight instead of on the
-  instruction inside it. The current pairs are in
+  panel that a naive detector flags on sight instead of on the instruction
+  inside it. The current pairs are in
   [docs/techniques.md](docs/techniques.md#benign-controls).
 
 Two rules the test suite enforces, so it's cheaper to know them up front.
