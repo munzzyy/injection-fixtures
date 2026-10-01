@@ -96,8 +96,7 @@ def test_benign_sample_dataclass_has_no_instruction_field():
 
 
 def test_every_technique_has_a_benign_counterpart_or_a_reason_for_none():
-    # CONTRIBUTING's rule, enforced: a new technique names the control that
-    # shares its look, or says why there is none.
+    # CONTRIBUTING's rule: every technique names its look-alike control or says why there is none.
     assert set(BENIGN_COUNTERPART) == set(CATALOG)
     for technique_id, control in BENIGN_COUNTERPART.items():
         if control is None:

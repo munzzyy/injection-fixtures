@@ -35,8 +35,7 @@ jobs:
           python -m zipfile -l dist/*.whl | grep -q "injection_fixtures/fonts/InjectionFixturesSans.ttf"
           python -m zipfile -l dist/*.whl | grep -q "injection_fixtures/py.typed"
       - name: Check the tag matches the package version
-        # A dispatch from a branch, or a tag that disagrees with __version__,
-        # would publish a version nobody tagged. PyPI never frees a version.
+        # Otherwise a branch dispatch or a mismatched tag publishes a version nobody tagged.
         run: |
           if [ "$GITHUB_REF_TYPE" != "tag" ]; then
             echo "::error::release from a v* tag, not from $GITHUB_REF_TYPE $GITHUB_REF_NAME"

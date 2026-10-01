@@ -422,9 +422,7 @@ def test_homoglyph_tiny_corner_renders_the_substituted_text():
     assert _t.HOMOGLYPHS["i"] in rendered
 
 
-# Each of these is non-empty and draws nothing: whitespace, a line break, a
-# bidi control `bidi-override` strips, a zero-width space the vendored font
-# maps to an empty glyph, and a mix.
+# Non-empty but invisible: whitespace, a stripped bidi control, a zero-width space, a mix.
 INVISIBLE = ["   ", "\n", "\u202e", "\u200b", "\u200b \u202e"]
 
 
@@ -456,8 +454,7 @@ def test_invisible_characters_the_technique_accepts_are_refused(technique_id, te
 
 
 def test_a_cap_that_leaves_only_whitespace_is_refused():
-    # tiny-corner draws the first 80 characters, so a visible word after them
-    # never reaches the canvas.
+    # tiny-corner draws only the first 80 characters.
     with pytest.raises(ValueError, match="draws nothing"):
         generate_image("tiny-corner", " " * 80 + "Ignore this")
 
