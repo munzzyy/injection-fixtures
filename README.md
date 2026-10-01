@@ -362,10 +362,10 @@ the caveats that come with a one-run benchmark:
 [docs/benchmarks/framewall.md](docs/benchmarks/framewall.md).
 
 That run predates the four `in-the-wild` techniques, the two `stacked`
-ones and the `benign-panel` control, so the table is a snapshot of injection-fixtures 0.1.0, not of what
-you get today. Re-run it with `python benchmark/run_framewall.py` (needs
-framewall installed and on `PATH`; see the script's own docstring) for a
-current number.
+ones and six of the ten controls, so the table is a snapshot of
+injection-fixtures 0.1.0, not of what you get today. Re-run it with
+`python benchmark/run_framewall.py` (needs framewall installed and on
+`PATH`; see the script's own docstring) for a current number.
 
 ## Grounded in
 
@@ -407,6 +407,32 @@ generated test fixtures.
   big, or a file that couldn't be written. argparse uses the same code for
   its own errors, such as a missing required argument.
 
+## Roadmap
+
+What is left needs someone other than this repo's code: a package index
+account, a tool install on the benchmark machine, native speakers or a
+decision.
+
+- A first release on PyPI, so [Install](#install) can say `pip install
+  injection-fixtures`. The release workflow is ready and refuses a tag that
+  does not match the package version. It still needs the Trusted Publisher
+  set up on pypi.org and a protected `pypi` environment. Nobody has checked
+  yet that the name is free.
+- A fresh [benchmark](#benchmark-how-well-a-real-detector-does-against-this)
+  run. The published numbers cover 8 of today's 14 techniques and 4 of the
+  10 controls. The same run should check every `ocr_expected` label against
+  real tesseract output, since none has been (see
+  [What this is not](#what-this-is-not)). It waits on tesseract's English
+  language data being installed where it runs.
+- Translations of the default instruction, each confirmed by a native
+  speaker. Every default is English today, so a detector with an
+  English-only blocklist looks better here than it is. The vendored font
+  already covers Latin, Greek and Cyrillic, so most European languages are
+  in reach. Send them as an issue or a PR with the reviewer named there.
+- Whether to keep Python 3.9. It is past end of life and Pillow 12 needs
+  3.10, so the 3.9 CI legs already test an older Pillow. Dropping it leaves
+  anyone on 3.9 on an older release, so it is a call for a version bump.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Every new technique names its benign
@@ -417,7 +443,7 @@ brings new visual chrome lands with a control for it in the same PR.
 
 [GPL-3.0-or-later](LICENSE). You can use, study, change and share it. If you distribute a copy or a modified version, it has to stay under the GPL and come with its source. Earlier commits were under MIT.
 
-The bundled font in `injection_fixtures/fonts/` is not GPL. It is a renamed subset of DejaVu Sans and keeps its own Bitstream Vera and Arev terms, which ship next to it in `LICENSE-DejaVu.txt`.
+The bundled font in `injection_fixtures/fonts/` keeps its own license. It is a renamed subset of DejaVu Sans under the Bitstream Vera and Arev terms, which ship next to it in `LICENSE-DejaVu.txt`.
 
 ## Support
 
