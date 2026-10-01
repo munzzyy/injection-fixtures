@@ -25,7 +25,7 @@ from typing import Dict, Optional, Tuple
 from PIL import Image, ImageChops
 
 from . import techniques as _t
-from ._util import DEFAULT_SIZE, require_min_size, validate_size
+from ._util import DEFAULT_SIZE, FontPath, require_min_size, validate_size
 from .model import PROVENANCE_IN_THE_WILD, PROVENANCE_STACKED, BBox, Technique
 
 Size = Tuple[int, int]
@@ -183,7 +183,7 @@ def _technique(technique_id: str) -> Technique:
 
 
 def rendered_instruction(technique_id: str, instruction_text: str,
-                          font_path: Optional[str] = None) -> str:
+                          font_path: Optional[FontPath] = None) -> str:
     """The exact string `generate_image` draws for this technique and text.
 
     Not always the text that went in: `homoglyph` swaps in look-alike
@@ -196,7 +196,7 @@ def rendered_instruction(technique_id: str, instruction_text: str,
 
 def generate_image(technique_id: str, instruction_text: str, size: Size = DEFAULT_SIZE,
                     base_image=None, seed: Optional[int] = None,
-                    font_path: Optional[str] = None):
+                    font_path: Optional[FontPath] = None):
     """Render one injection payload by technique id. Raises ValueError on an
     unknown id, an invalid size, a canvas too small to carry the payload, or
     an instruction that draws nothing (whitespace, zero-width or bidi control
@@ -211,7 +211,7 @@ def generate_image(technique_id: str, instruction_text: str, size: Size = DEFAUL
 
 def generate_image_with_bbox(technique_id: str, instruction_text: str, size: Size = DEFAULT_SIZE,
                               base_image=None, seed: Optional[int] = None,
-                              font_path: Optional[str] = None) -> Tuple[Image.Image, Optional[BBox]]:
+                              font_path: Optional[FontPath] = None) -> Tuple[Image.Image, Optional[BBox]]:
     """Like `generate_image`, but also returns where the instruction landed.
 
     Returns `(image, bbox)`. `bbox` is `(left, top, right, bottom)` in pixel

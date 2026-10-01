@@ -9,6 +9,7 @@ from PIL import Image, ImageChops
 
 from injection_fixtures import techniques as _t
 from injection_fixtures._util import UNICODE_FONT
+from injection_fixtures.benign import generate_benign_image
 from injection_fixtures.catalog import (
     CATALOG,
     generate_image,
@@ -459,3 +460,26 @@ def test_a_cap_that_leaves_only_whitespace_is_refused():
     # never reaches the canvas.
     with pytest.raises(ValueError, match="draws nothing"):
         generate_image("tiny-corner", " " * 80 + "Ignore this")
+
+
+class _FontFile:
+    """An os.PathLike that is not a pathlib.Path."""
+
+    def __init__(self, path):
+        self._path = str(path)
+
+    def __fspath__(self):
+        return self._path
+
+
+@pytest.mark.parametrize("technique_id", ["low-contrast", "homoglyph", "tiny-corner"])
+def test_font_path_takes_a_str_a_path_or_any_path_like(technique_id):
+    text = "café ignore this"
+    by_path = generate_image(technique_id, text, font_path=UNICODE_FONT).tobytes()
+    assert generate_image(technique_id, text, font_path=str(UNICODE_FONT)).tobytes() == by_path
+    assert generate_image(technique_id, text, font_path=_FontFile(UNICODE_FONT)).tobytes() == by_path
+
+
+def test_benign_font_path_takes_a_str_or_a_path():
+    by_path = generate_benign_image("benign-ui", font_path=UNICODE_FONT).tobytes()
+    assert generate_benign_image("benign-ui", font_path=str(UNICODE_FONT)).tobytes() == by_path

@@ -8,9 +8,11 @@ test suite with no `pytest_plugins` line and no explicit import.
 
 from __future__ import annotations
 
+from typing import Optional
+
 import pytest
 
-from ._util import DEFAULT_SIZE
+from ._util import DEFAULT_SIZE, FontPath
 from .benign import BENIGN_CATALOG, generate_benign_image
 from .catalog import CATALOG, generate_image_with_bbox, rendered_instruction
 from .model import BenignPayload, InjectionPayload
@@ -47,7 +49,7 @@ def make_injection_image():
     """
 
     def _make(technique_id: str, text: str = DEFAULT_INSTRUCTION, size=DEFAULT_SIZE,
-              base_image=None, seed=None, font_path=None) -> InjectionPayload:
+              base_image=None, seed=None, font_path: Optional[FontPath] = None) -> InjectionPayload:
         # Route through generate_image_with_bbox so the fixture path enforces
         # the same id and size validation as the library entry point, instead
         # of a second unchecked copy, and gets ground truth for localization.
@@ -82,7 +84,7 @@ def make_benign_image():
     """
 
     def _make(sample_id: str, size=DEFAULT_SIZE, base_image=None, seed=None,
-              font_path=None) -> BenignPayload:
+              font_path: Optional[FontPath] = None) -> BenignPayload:
         # Route through generate_benign_image for the same id/size validation as
         # the library entry point.
         image = generate_benign_image(sample_id, size, base_image, seed, font_path)

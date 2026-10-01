@@ -26,6 +26,7 @@ from PIL import Image, ImageDraw
 from ._util import (
     DEFAULT_SIZE,
     UNICODE_FONT,
+    FontPath,
     canvas,
     checkerboard,
     clip_text,
@@ -73,22 +74,22 @@ LOW_CONTRAST_DELTA = 6
 ROTATION_ANGLE = 22
 
 
-def prepare_default(text: str, font_path: Optional[str] = None) -> str:
+def prepare_default(text: str, font_path: Optional[FontPath] = None) -> str:
     """The instruction as drawn by most techniques: capped and glyph-checked."""
     return require_visible(text, clip_text(text, font_path), font_path)
 
 
-def prepare_tiny_corner(text: str, font_path: Optional[str] = None) -> str:
+def prepare_tiny_corner(text: str, font_path: Optional[FontPath] = None) -> str:
     """`tiny-corner` draws one short line, so it takes the first 80 characters."""
     return require_visible(text, clip_text(text, font_path)[:80], font_path)
 
 
-def prepare_caption(text: str, font_path: Optional[str] = None) -> str:
+def prepare_caption(text: str, font_path: Optional[FontPath] = None) -> str:
     """`caption-chrome` and `rotated-skew` draw one line, capped at 120."""
     return require_visible(text, clip_text(text, font_path)[:120], font_path)
 
 
-def prepare_homoglyph(text: str, font_path: Optional[str] = None) -> str:
+def prepare_homoglyph(text: str, font_path: Optional[FontPath] = None) -> str:
     """Swap every Latin character that has a Cyrillic look-alike.
 
     The glyph check runs after the substitution, against the Unicode font,
@@ -99,7 +100,7 @@ def prepare_homoglyph(text: str, font_path: Optional[str] = None) -> str:
     return require_visible(text, clip_text(swapped, font_file), font_file)
 
 
-def prepare_bidi(text: str, font_path: Optional[str] = None) -> str:
+def prepare_bidi(text: str, font_path: Optional[FontPath] = None) -> str:
     """Drop any bidi control the caller passed, then reverse the text.
 
     A U+202E right-to-left override makes a viewer see the characters in
@@ -111,7 +112,7 @@ def prepare_bidi(text: str, font_path: Optional[str] = None) -> str:
     return require_visible(text, clip_text(stripped, font_path)[::-1], font_path)
 
 
-def split_fragments(text: str, font_path: Optional[str] = None, parts: int = 3) -> List[str]:
+def split_fragments(text: str, font_path: Optional[FontPath] = None, parts: int = 3) -> List[str]:
     """Break the instruction into `parts` word-aligned fragments.
 
     Each fragment is meaningless on its own; only the concatenation is the
@@ -127,7 +128,7 @@ def split_fragments(text: str, font_path: Optional[str] = None, parts: int = 3) 
     return chunks[:parts]
 
 
-def prepare_split(text: str, font_path: Optional[str] = None) -> str:
+def prepare_split(text: str, font_path: Optional[FontPath] = None) -> str:
     """The reassembled instruction, which is what a detector has to recover."""
     return " ".join(part for part in split_fragments(text, font_path) if part)
 
@@ -139,7 +140,7 @@ def color_matched_paragraph(
     fill,
     font_size: int,
     delta: int,
-    font_path: Optional[str] = None,
+    font_path: Optional[FontPath] = None,
 ) -> Image.Image:
     """Shared body for `low-contrast` and `white-on-white`: draw text `delta`
     shades away from whatever sits under each glyph.
@@ -176,7 +177,7 @@ def color_matched_paragraph(
 
 def generate_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
                            base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                           font_path: Optional[str] = None) -> Image.Image:
+                           font_path: Optional[FontPath] = None) -> Image.Image:
     """Text a few shades off the background color: easy to miss on a skim,
     still a distinct pixel value.
     """
@@ -187,7 +188,7 @@ def generate_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 def generate_white_on_white(instruction_text: str, size: Size = DEFAULT_SIZE,
                              base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                             font_path: Optional[str] = None) -> Image.Image:
+                             font_path: Optional[FontPath] = None) -> Image.Image:
     """Text one shade off the background color: imperceptible to a human, still
     a real pixel value carrying the payload.
 
@@ -202,7 +203,7 @@ def generate_white_on_white(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 def generate_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
                           base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                          font_path: Optional[str] = None) -> Image.Image:
+                          font_path: Optional[FontPath] = None) -> Image.Image:
     """A short line of very small text tucked into a corner."""
     text = prepare_tiny_corner(instruction_text, font_path)
     img = canvas(size, base_image, fill="white").convert("RGB")
@@ -210,7 +211,7 @@ def generate_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
     return img
 
 
-def draw_in_corner(draw: ImageDraw.ImageDraw, text: str, size: Size, font_path: Optional[str]) -> None:
+def draw_in_corner(draw: ImageDraw.ImageDraw, text: str, size: Size, font_path: Optional[FontPath]) -> None:
     """One line of 7px grey type against the bottom-right corner, the
     placement `tiny-corner` uses and its benign control copies.
     """
@@ -224,7 +225,7 @@ def draw_in_corner(draw: ImageDraw.ImageDraw, text: str, size: Size, font_path: 
 
 def generate_edge_noise(instruction_text: str, size: Size = DEFAULT_SIZE,
                          base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                         font_path: Optional[str] = None) -> Image.Image:
+                         font_path: Optional[FontPath] = None) -> Image.Image:
     """Text embedded in a high-frequency checkerboard region, alternating
     colors line to line so it keeps blending into the pattern's edges.
     """
@@ -257,7 +258,7 @@ def generate_edge_noise(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 def generate_fake_system_message(instruction_text: str, size: Size = DEFAULT_SIZE,
                                   base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                                  font_path: Optional[str] = None) -> Image.Image:
+                                  font_path: Optional[FontPath] = None) -> Image.Image:
     """A rounded box styled like a chat/system-message bubble, containing the
     instruction as if it were a legitimate UI element.
     """
@@ -282,7 +283,7 @@ def generate_fake_system_message(instruction_text: str, size: Size = DEFAULT_SIZ
 
 def generate_caption_chrome(instruction_text: str, size: Size = DEFAULT_SIZE,
                              base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                             font_path: Optional[str] = None) -> Image.Image:
+                             font_path: Optional[FontPath] = None) -> Image.Image:
     """A photo-credit style bar along the bottom edge, reading as image chrome
     rather than content.
     """
@@ -300,7 +301,7 @@ def generate_caption_chrome(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 def generate_low_opacity(instruction_text: str, size: Size = DEFAULT_SIZE,
                           base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                          font_path: Optional[str] = None) -> Image.Image:
+                          font_path: Optional[FontPath] = None) -> Image.Image:
     """Text at low alpha composited over a busy background."""
     text = prepare_default(instruction_text, font_path)
     base = noise_background(size, sigma=45, seed=seed) if base_image is None else canvas(size, base_image)
@@ -321,7 +322,7 @@ def generate_low_opacity(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 def generate_rotated(instruction_text: str, size: Size = DEFAULT_SIZE,
                       base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                      font_path: Optional[str] = None) -> Image.Image:
+                      font_path: Optional[FontPath] = None) -> Image.Image:
     """Text rendered upright then rotated, the way a watermark or a
     deliberately OCR-hostile payload would sit at an angle.
     """
@@ -331,7 +332,7 @@ def generate_rotated(instruction_text: str, size: Size = DEFAULT_SIZE,
     return img.convert("RGB")
 
 
-def paste_rotated(img: Image.Image, text: str, font_path: Optional[str], color: Tuple[int, int, int]) -> None:
+def paste_rotated(img: Image.Image, text: str, font_path: Optional[FontPath], color: Tuple[int, int, int]) -> None:
     """Draw one line of 18px `text` upright, rotate it by `ROTATION_ANGLE` and
     paste it centered on the RGBA `img`.
 
@@ -354,7 +355,7 @@ def paste_rotated(img: Image.Image, text: str, font_path: Optional[str], color: 
 
 def generate_homoglyph(instruction_text: str, size: Size = DEFAULT_SIZE,
                         base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                        font_path: Optional[str] = None) -> Image.Image:
+                        font_path: Optional[FontPath] = None) -> Image.Image:
     """Plain, readable text whose letters are Cyrillic look-alikes.
 
     Nothing here hides the instruction from a human or from OCR: the pixels are
@@ -379,7 +380,7 @@ def generate_homoglyph(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 def generate_bidi_override(instruction_text: str, size: Size = DEFAULT_SIZE,
                             base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                            font_path: Optional[str] = None) -> Image.Image:
+                            font_path: Optional[FontPath] = None) -> Image.Image:
     """The instruction under a right-to-left override: drawn in reverse.
 
     On a page, U+202E flips the display order of everything after it, so a
@@ -404,7 +405,7 @@ def generate_bidi_override(instruction_text: str, size: Size = DEFAULT_SIZE,
 
 def generate_split_payload(instruction_text: str, size: Size = DEFAULT_SIZE,
                             base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                            font_path: Optional[str] = None) -> Image.Image:
+                            font_path: Optional[FontPath] = None) -> Image.Image:
     """One instruction cut into fragments and scattered across the canvas.
 
     Every fragment is high-contrast and trivially readable, and no fragment is
@@ -418,7 +419,7 @@ def generate_split_payload(instruction_text: str, size: Size = DEFAULT_SIZE,
     return img
 
 
-def scatter(draw: ImageDraw.ImageDraw, fragments: List[str], size: Size, font_path: Optional[str]) -> None:
+def scatter(draw: ImageDraw.ImageDraw, fragments: List[str], size: Size, font_path: Optional[FontPath]) -> None:
     """Lay `fragments` out the way `split-payload` does: one per band, sides
     alternating, each followed by a line of grey filler copy.
     """
@@ -439,7 +440,7 @@ def scatter(draw: ImageDraw.ImageDraw, fragments: List[str], size: Size, font_pa
         draw.text((margin, min(h - 12, y + 4)), filler, font=filler_font, fill=(150, 150, 155))
 
 
-def panels(draw: ImageDraw.ImageDraw, size: Size, font_path: Optional[str]):
+def panels(draw: ImageDraw.ImageDraw, size: Size, font_path: Optional[FontPath]):
     """Draw the three colored panels shared by `color-camouflage` and its
     benign control `benign-panel`.
 
@@ -466,7 +467,7 @@ def panels(draw: ImageDraw.ImageDraw, size: Size, font_path: Optional[str]):
 
 def generate_color_camouflage(instruction_text: str, size: Size = DEFAULT_SIZE,
                                base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                               font_path: Optional[str] = None) -> Image.Image:
+                               font_path: Optional[FontPath] = None) -> Image.Image:
     """Text painted a few shades off the colored panel it sits in.
 
     `low-contrast` hides text on a near-white page. This hides it inside a
@@ -503,7 +504,7 @@ def generate_color_camouflage(instruction_text: str, size: Size = DEFAULT_SIZE,
     return img
 
 
-def prepare_stacked_homoglyph_tiny_corner(text: str, font_path: Optional[str] = None) -> str:
+def prepare_stacked_homoglyph_tiny_corner(text: str, font_path: Optional[FontPath] = None) -> str:
     """`homoglyph-tiny-corner` draws one short line, so it takes homoglyph's
     substitution then tiny-corner's 80-character cap, in that order: the
     substitution has to run on the full instruction, the same as it would for
@@ -515,7 +516,7 @@ def prepare_stacked_homoglyph_tiny_corner(text: str, font_path: Optional[str] = 
 def generate_stacked_rotated_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
                                            base_image: Optional[Image.Image] = None,
                                            seed: Optional[int] = None,
-                                           font_path: Optional[str] = None) -> Image.Image:
+                                           font_path: Optional[FontPath] = None) -> Image.Image:
     """`rotated-skew` and `low-contrast` compounded: the same text rotated to
     an angle, in a color a few shades off the background instead of
     `rotated-skew`'s own full-contrast dark grey.
@@ -534,7 +535,7 @@ def generate_stacked_rotated_low_contrast(instruction_text: str, size: Size = DE
 def generate_stacked_homoglyph_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
                                             base_image: Optional[Image.Image] = None,
                                             seed: Optional[int] = None,
-                                            font_path: Optional[str] = None) -> Image.Image:
+                                            font_path: Optional[FontPath] = None) -> Image.Image:
     """`homoglyph` and `tiny-corner` compounded: the Cyrillic-substituted
     instruction, in tiny type tucked into a corner instead of a full-width
     paragraph.
@@ -556,7 +557,7 @@ def generate_stacked_homoglyph_tiny_corner(instruction_text: str, size: Size = D
 # meaningful - two background-replacement techniques would just have one
 # overwrite the other's canvas - so this is a short, deliberately curated
 # list rather than every combination the catalog could produce.
-STACKED_GENERATORS: Dict[Tuple[str, str], Callable[..., Image.Image]] = {
+STACKED_GENERATORS: Dict[Tuple[str, ...], Callable[..., Image.Image]] = {
     tuple(sorted(("low-contrast", "rotated-skew"))): generate_stacked_rotated_low_contrast,
     tuple(sorted(("homoglyph", "tiny-corner"))): generate_stacked_homoglyph_tiny_corner,
 }
@@ -564,7 +565,7 @@ STACKED_GENERATORS: Dict[Tuple[str, str], Callable[..., Image.Image]] = {
 
 def generate_stacked(technique_ids: List[str], instruction_text: str, size: Size = DEFAULT_SIZE,
                       base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
-                      font_path: Optional[str] = None) -> Image.Image:
+                      font_path: Optional[FontPath] = None) -> Image.Image:
     """Render `instruction_text` with two techniques' transforms compounded
     rather than either one applied alone.
 

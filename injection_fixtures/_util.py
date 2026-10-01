@@ -5,13 +5,17 @@ control generators. Nothing here reaches the network or the filesystem.
 from __future__ import annotations
 
 import functools
+import os
 import random
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 from PIL import Image, ImageDraw, ImageFont
 
 DEFAULT_SIZE: Tuple[int, int] = (600, 400)
+
+# A font file as a str or a path object, such as UNICODE_FONT.
+FontPath = Union[str, os.PathLike[str]]
 
 # The vendored Unicode font. Pillow's bundled default font covers ASCII and
 # nothing else, so an accent, a Greek letter or a Cyrillic letter has no glyph
@@ -44,7 +48,7 @@ LINE_BREAKS = "\r\n\v\f\u2028\u2029\u0085"
 
 
 @functools.lru_cache(maxsize=8)
-def _tofu_signature(font_path: Optional[str]) -> Tuple[Tuple[int, int], bytes]:
+def _tofu_signature(font_path: Optional[FontPath]) -> Tuple[Tuple[int, int], bytes]:
     """A font's .notdef bitmap. Any codepoint the font can't draw comes back
     byte-identical to this box, which is how we spot silent tofu.
     """
@@ -53,7 +57,7 @@ def _tofu_signature(font_path: Optional[str]) -> Tuple[Tuple[int, int], bytes]:
 
 
 @functools.lru_cache(maxsize=4096)
-def _font_has_glyph(ch: str, font_path: Optional[str] = None) -> bool:
+def _font_has_glyph(ch: str, font_path: Optional[FontPath] = None) -> bool:
     """Whether `font_path` (or the bundled font) has a real glyph for `ch`."""
     if ch.isspace():
         return True
@@ -62,7 +66,7 @@ def _font_has_glyph(ch: str, font_path: Optional[str] = None) -> bool:
 
 
 @functools.lru_cache(maxsize=4096)
-def _draws_ink(ch: str, font_path: Optional[str] = None) -> bool:
+def _draws_ink(ch: str, font_path: Optional[FontPath] = None) -> bool:
     """Whether `ch` puts any pixel down. False for whitespace, and for the
     zero-width and bidi format characters a font maps to an empty glyph.
     """
@@ -71,7 +75,7 @@ def _draws_ink(ch: str, font_path: Optional[str] = None) -> bool:
     return any(bytes(load_font(16, font_path).getmask(ch)))
 
 
-def require_visible(text: str, drawn: str, font_path: Optional[str] = None) -> str:
+def require_visible(text: str, drawn: str, font_path: Optional[FontPath] = None) -> str:
     """Return `drawn`, or raise if a non-empty `text` came out as nothing visible.
 
     `drawn` is the string a technique actually puts on the canvas for `text`.
@@ -96,7 +100,7 @@ def normalize_breaks(text: str) -> str:
     return text
 
 
-def clip_text(text: str, font_path: Optional[str] = None) -> str:
+def clip_text(text: str, font_path: Optional[FontPath] = None) -> str:
     """Cap and validate the instruction/caption text before it is rendered.
 
     Rejects text the font can't draw: those codepoints render as identical
@@ -152,7 +156,7 @@ def validate_size(size: Tuple[int, int]) -> Tuple[int, int]:
 
 
 @functools.lru_cache(maxsize=64)
-def load_font(size: int, font_path: Optional[str] = None) -> ImageFont.ImageFont:
+def load_font(size: int, font_path: Optional[FontPath] = None) -> ImageFont.ImageFont:
     """A font at `size`: the bundled Pillow default, or the TrueType file at
     `font_path`.
 
@@ -161,7 +165,7 @@ def load_font(size: int, font_path: Optional[str] = None) -> ImageFont.ImageFont
     """
     if font_path is not None:
         try:
-            return ImageFont.truetype(str(font_path), size=size)
+            return ImageFont.truetype(os.fspath(font_path), size=size)
         except OSError as e:
             raise ValueError(f"could not load the font at {font_path}: {e}") from None
     try:
@@ -178,7 +182,8 @@ def line_height(font: ImageFont.ImageFont, default: int = 18) -> int:
     return default
 
 
-def canvas(size: Tuple[int, int], base_image: Optional[Image.Image], fill="white") -> Image.Image:
+def canvas(size: Tuple[int, int], base_image: Optional[Image.Image],
+           fill: Union[str, Tuple[int, int, int]] = "white") -> Image.Image:
     """An RGBA canvas of `size`: `base_image` resized if given, else a flat fill."""
     if base_image is not None:
         return base_image.convert("RGBA").resize(size)
