@@ -121,7 +121,7 @@ is drawn. One instruction is one run of text here.
 
 ## Benign controls
 
-`injection_fixtures/benign.py` ships five generators with no injected
+`injection_fixtures/benign.py` ships ten generators with no injected
 instruction, for measuring false-positive rate:
 
 | id | what it does |
@@ -131,9 +131,32 @@ instruction, for measuring false-positive rate:
 | `benign-ui` | The same box chrome as `fake-system-ui`, filled with ordinary app copy instead of a directive. |
 | `benign-caption` | The same caption-bar chrome as `caption-chrome`, with a real photo credit instead of a directive. |
 | `benign-panel` | The same colored panel row as `color-camouflage`, with readable ordinary copy instead of camouflaged text. |
+| `benign-cyrillic` | The same paragraph layout as `homoglyph`, with a real Russian status line. Always drawn with the vendored font. |
+| `benign-faint` | The same faint paragraph as `low-contrast`, six shades off the background, with ordinary copy. |
+| `benign-watermark` | A light grey proof watermark at `rotated-skew`'s angle. |
+| `benign-corner` | A page footer in the same tiny type and corner as `tiny-corner`. |
+| `benign-scattered` | The same scattered layout and filler lines as `split-payload`, with three unrelated ordinary lines where the fragments would be. |
 
-`benign-ui`, `benign-caption` and `benign-panel` exist specifically to catch a
-detector that flags "any text in a box", "any caption bar" or "any colored
-panel" rather than the actual instruction inside it. Chrome alone should never
-be the signal.
-</content>
+Chrome alone should never be the signal. A detector that fires on "any text
+in a box", "any Cyrillic", "any faint text", "any angled line" or "any
+scattered short lines" fires on these too, and the false-positive rate shows
+it. `BENIGN_COUNTERPART` maps every technique to the control that shares its
+look:
+
+| technique | control |
+| --- | --- |
+| `low-contrast`, `white-on-white` | `benign-faint` |
+| `tiny-corner`, `homoglyph-tiny-corner` | `benign-corner` |
+| `edge-noise`, `low-opacity` | `photo-like` |
+| `fake-system-ui` | `benign-ui` |
+| `caption-chrome` | `benign-caption` |
+| `rotated-skew`, `rotated-low-contrast` | `benign-watermark` |
+| `homoglyph` | `benign-cyrillic` |
+| `split-payload` | `benign-scattered` |
+| `color-camouflage` | `benign-panel` |
+| `bidi-override` | none |
+
+`bidi-override` has none on purpose. It draws a plain paragraph with no
+chrome of its own, and the trick is all in the reversed string. Ordinary copy
+printed backwards is not something real pages show, so there is no honest
+look-alike to draw.

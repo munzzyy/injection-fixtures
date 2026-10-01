@@ -80,13 +80,22 @@ def test_readme_counts_are_digits_that_match_the_catalogs(heading):
 
 
 def _doc_table_rows():
+    """Rows of every table in docs/techniques.md whose first column is `id`,
+    keyed by id, as {column header: cell}.
+    """
     if not TECHNIQUES_DOC.is_file():
         pytest.skip("docs/ is not in this tree")
     rows = {}
+    header = None
     for line in TECHNIQUES_DOC.read_text(encoding="utf-8").splitlines():
-        match = re.match(r"^\| `([a-z0-9-]+)` \|(.*)\|$", line)
-        if match:
-            rows[match.group(1)] = [cell.strip() for cell in match.group(2).split("|")]
+        if not line.startswith("|"):
+            header = None
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if header is None:
+            header = cells
+        elif header[0] == "id" and not set(cells[0]) <= set("-"):
+            rows[cells[0].strip("`")] = dict(zip(header, cells))
     return rows
 
 
@@ -95,7 +104,7 @@ def test_techniques_doc_min_size_column_matches_the_catalog():
     for technique_id, technique in CATALOG.items():
         assert technique_id in rows, f"{technique_id} has no row in docs/techniques.md"
         w, h = technique.min_size
-        assert rows[technique_id][2] == f"{w}x{h}", technique_id
+        assert rows[technique_id]["min size"] == f"{w}x{h}", technique_id
 
 
 def test_techniques_doc_benign_table_lists_every_control():

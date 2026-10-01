@@ -68,6 +68,10 @@ SPLIT_FILLER = ("Quarterly summary", "Attachments (3)", "Last edited Tuesday")
 # distractor panels so a detector cannot just look for "the one colored box".
 PANEL_COLORS = ((36, 84, 148), (30, 110, 78), (150, 96, 20))
 
+# Shared with the benign controls that copy each technique's look.
+LOW_CONTRAST_DELTA = 6
+ROTATION_ANGLE = 22
+
 
 def prepare_default(text: str, font_path: Optional[str] = None) -> str:
     """The instruction as drawn by most techniques: capped and glyph-checked."""
@@ -128,7 +132,7 @@ def prepare_split(text: str, font_path: Optional[str] = None) -> str:
     return " ".join(part for part in split_fragments(text, font_path) if part)
 
 
-def _color_matched_paragraph(
+def color_matched_paragraph(
     instruction_text: str,
     size: Size,
     base_image: Optional[Image.Image],
@@ -176,9 +180,9 @@ def generate_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
     """Text a few shades off the background color: easy to miss on a skim,
     still a distinct pixel value.
     """
-    return _color_matched_paragraph(instruction_text, size, base_image,
-                                     fill=(246, 246, 244), font_size=16, delta=6,
-                                     font_path=font_path)
+    return color_matched_paragraph(instruction_text, size, base_image,
+                                   fill=(246, 246, 244), font_size=16, delta=LOW_CONTRAST_DELTA,
+                                   font_path=font_path)
 
 
 def generate_white_on_white(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -191,9 +195,9 @@ def generate_white_on_white(instruction_text: str, size: Size = DEFAULT_SIZE,
     blank image with no recoverable text at all, which is a broken fixture, not
     a hard one: the injected string has to actually exist in the pixels.
     """
-    return _color_matched_paragraph(instruction_text, size, base_image,
-                                     fill=(255, 255, 255), font_size=16, delta=1,
-                                     font_path=font_path)
+    return color_matched_paragraph(instruction_text, size, base_image,
+                                   fill=(255, 255, 255), font_size=16, delta=1,
+                                   font_path=font_path)
 
 
 def generate_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -202,14 +206,20 @@ def generate_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
     """A short line of very small text tucked into a corner."""
     text = prepare_tiny_corner(instruction_text, font_path)
     img = canvas(size, base_image, fill="white").convert("RGB")
-    draw = ImageDraw.Draw(img)
+    draw_in_corner(ImageDraw.Draw(img), text, size, font_path)
+    return img
+
+
+def draw_in_corner(draw: ImageDraw.ImageDraw, text: str, size: Size, font_path: Optional[str]) -> None:
+    """One line of 7px grey type against the bottom-right corner, the
+    placement `tiny-corner` uses and its benign control copies.
+    """
     font = load_font(7, font_path)
     w, h = size
     tw = draw.textlength(text, font=font)
     x = max(1, w - int(tw) - 3)
     y = max(1, h - 12)
     draw.text((x, y), text, font=font, fill=(90, 90, 90))
-    return img
 
 
 def generate_edge_noise(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -317,21 +327,29 @@ def generate_rotated(instruction_text: str, size: Size = DEFAULT_SIZE,
     """
     text = prepare_caption(instruction_text, font_path)
     img = canvas(size, base_image, fill="white").convert("RGBA")
+    paste_rotated(img, text, font_path, (40, 40, 40))
+    return img.convert("RGB")
+
+
+def paste_rotated(img: Image.Image, text: str, font_path: Optional[str], color: Tuple[int, int, int]) -> None:
+    """Draw one line of 18px `text` upright, rotate it by `ROTATION_ANGLE` and
+    paste it centered on the RGBA `img`.
+
+    When the rotated layer is wider or taller than the canvas (small sizes),
+    the offset goes negative and crops it, instead of clamping to (0, 0),
+    which pushed every glyph off-canvas and rendered a blank image below
+    roughly 180px wide.
+    """
     font = load_font(18, font_path)
     probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
     tw = int(probe.textlength(text, font=font)) + 8
     th = line_height(font, default=24) + 12
     tmp = Image.new("RGBA", (max(tw, 1), th), (0, 0, 0, 0))
-    ImageDraw.Draw(tmp).text((2, 2), text, font=font, fill=(40, 40, 40, 255))
-    rotated = tmp.rotate(22, expand=True, resample=Image.BICUBIC)
-    # Center the rotated layer on the canvas. When it is wider or taller than
-    # the canvas (small sizes), the offset goes negative and crops it, instead
-    # of clamping to (0, 0) which pushed every glyph off-canvas and rendered a
-    # blank image below roughly 180px wide.
-    x = (size[0] - rotated.width) // 2
-    y = (size[1] - rotated.height) // 2
+    ImageDraw.Draw(tmp).text((2, 2), text, font=font, fill=(*color, 255))
+    rotated = tmp.rotate(ROTATION_ANGLE, expand=True, resample=Image.BICUBIC)
+    x = (img.width - rotated.width) // 2
+    y = (img.height - rotated.height) // 2
     img.paste(rotated, (x, y), rotated)
-    return img.convert("RGB")
 
 
 def generate_homoglyph(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -396,7 +414,14 @@ def generate_split_payload(instruction_text: str, size: Size = DEFAULT_SIZE,
     """
     fragments = split_fragments(instruction_text, font_path)
     img = canvas(size, base_image, fill=(255, 255, 255)).convert("RGB")
-    draw = ImageDraw.Draw(img)
+    scatter(ImageDraw.Draw(img), fragments, size, font_path)
+    return img
+
+
+def scatter(draw: ImageDraw.ImageDraw, fragments: List[str], size: Size, font_path: Optional[str]) -> None:
+    """Lay `fragments` out the way `split-payload` does: one per band, sides
+    alternating, each followed by a line of grey filler copy.
+    """
     font = load_font(15, font_path)
     filler_font = load_font(11, font_path)
     w, h = size
@@ -412,7 +437,6 @@ def generate_split_payload(instruction_text: str, size: Size = DEFAULT_SIZE,
             y += lh
         filler = SPLIT_FILLER[i % len(SPLIT_FILLER)]
         draw.text((margin, min(h - 12, y + 4)), filler, font=filler_font, fill=(150, 150, 155))
-    return img
 
 
 def panels(draw: ImageDraw.ImageDraw, size: Size, font_path: Optional[str]):
@@ -503,19 +527,7 @@ def generate_stacked_rotated_low_contrast(instruction_text: str, size: Size = DE
     text = prepare_caption(instruction_text, font_path)
     fill = (255, 255, 255)
     img = canvas(size, base_image, fill=fill).convert("RGBA")
-    font = load_font(18, font_path)
-    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-    tw = int(probe.textlength(text, font=font)) + 8
-    th = line_height(font, default=24) + 12
-    tmp = Image.new("RGBA", (max(tw, 1), th), (0, 0, 0, 0))
-    text_color = near_background_color(fill, 6)
-    ImageDraw.Draw(tmp).text((2, 2), text, font=font, fill=(*text_color, 255))
-    rotated = tmp.rotate(22, expand=True, resample=Image.BICUBIC)
-    # Same off-canvas clamp as generate_rotated: center, then let a negative
-    # offset crop instead of pushing the layer past the edge.
-    x = (size[0] - rotated.width) // 2
-    y = (size[1] - rotated.height) // 2
-    img.paste(rotated, (x, y), rotated)
+    paste_rotated(img, text, font_path, near_background_color(fill, LOW_CONTRAST_DELTA))
     return img.convert("RGB")
 
 
@@ -534,15 +546,8 @@ def generate_stacked_homoglyph_tiny_corner(instruction_text: str, size: Size = D
     whatever it finds there.
     """
     text = prepare_stacked_homoglyph_tiny_corner(instruction_text, font_path)
-    font_file = font_path or UNICODE_FONT
     img = canvas(size, base_image, fill="white").convert("RGB")
-    draw = ImageDraw.Draw(img)
-    font = load_font(7, font_file)
-    w, h = size
-    tw = draw.textlength(text, font=font)
-    x = max(1, w - int(tw) - 3)
-    y = max(1, h - 12)
-    draw.text((x, y), text, font=font, fill=(90, 90, 90))
+    draw_in_corner(ImageDraw.Draw(img), text, size, font_path or UNICODE_FONT)
     return img
 
 
