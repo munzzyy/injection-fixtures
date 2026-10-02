@@ -1,9 +1,10 @@
 # Changelog
 
-All notable changes to injection-fixtures are recorded here. Nothing has
-been tagged or published yet, so everything so far sits under Unreleased.
+All notable changes to injection-fixtures are recorded here.
 
-## Unreleased
+## 0.2.0 - 2026-10-02
+
+The first tag.
 
 ### Techniques and controls
 
