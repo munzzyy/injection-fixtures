@@ -194,6 +194,22 @@ def test_make_injection_image_carries_rendered_text_and_provenance(pytester):
     result.assert_outcomes(passed=1)
 
 
+def test_make_injection_image_reports_the_text_drawn_at_its_size(pytester):
+    pytester.makepyfile(
+        test_consumer="""
+        from injection_fixtures import rendered_instruction
+
+        def test_it(make_injection_image):
+            payload = make_injection_image("color-camouflage", size=(300, 150))
+            assert payload.rendered_text == rendered_instruction(
+                "color-camouflage", payload.instruction_text, size=(300, 150))
+            assert payload.rendered_text != payload.instruction_text
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
 def test_generate_image_with_bbox_is_exported_from_the_package():
     from injection_fixtures import generate_image_with_bbox
 

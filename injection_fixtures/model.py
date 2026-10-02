@@ -35,14 +35,16 @@ class Technique:
     package verifies at generation time.
 
     `min_size` is the smallest canvas on which this technique's text still
-    lands inside the image. Below it the render would come back byte-identical
-    to the same render with no instruction, so `generate_image` refuses instead
-    of handing back a fixture with no payload in it.
+    lands inside the image. Below it the render would carry no payload, so
+    `generate_image` refuses instead of handing back a fixture with nothing in
+    it.
 
-    `prepare` returns the exact string the generator draws. It is not always
-    the caller's text: `homoglyph` substitutes look-alike codepoints,
-    `bidi-override` reverses it, and several techniques truncate. The manifest
-    written by `render --all` publishes both, so ground truth matches pixels.
+    `prepare(text, font_path, size=...)` returns the exact string the
+    generator draws on a canvas of that size. It is not always the caller's
+    text: `homoglyph` substitutes look-alike codepoints, `bidi-override`
+    reverses it, and an instruction that does not fit the canvas is cut after
+    the last word that does. The manifest written by `render --all` publishes
+    both, so ground truth matches pixels.
     """
 
     id: str

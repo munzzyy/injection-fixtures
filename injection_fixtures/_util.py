@@ -7,8 +7,9 @@ from __future__ import annotations
 import functools
 import os
 import random
+import re
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -75,6 +76,11 @@ def _draws_ink(ch: str, font_path: Optional[FontPath] = None) -> bool:
     return any(bytes(load_font(16, font_path).getmask(ch)))
 
 
+def draws_ink(text: str, font_path: Optional[FontPath] = None) -> bool:
+    """Whether any character of `text` puts a pixel down."""
+    return any(_draws_ink(ch, font_path) for ch in set(text))
+
+
 def require_visible(text: str, drawn: str, font_path: Optional[FontPath] = None) -> str:
     """Return `drawn`, or raise if a non-empty `text` came out as nothing visible.
 
@@ -83,7 +89,7 @@ def require_visible(text: str, drawn: str, font_path: Optional[FontPath] = None)
     an image identical to the no-text render, which a detector passes for free.
     An empty `text` is the deliberate no-text baseline and is let through.
     """
-    if text and not any(_draws_ink(ch, font_path) for ch in set(drawn)):
+    if text and not draws_ink(drawn, font_path):
         raise ValueError(
             f"the instruction draws nothing: {text[:40]!r} is whitespace or "
             f"characters with no visible glyph, so the image would carry no payload"
@@ -139,6 +145,58 @@ def require_min_size(size: Tuple[int, int], minimum: Tuple[int, int], what: str)
             f"least {minimum[0]}x{minimum[1]} for the instruction to land on "
             f"the canvas. Below that the render carries no payload."
         )
+
+
+def clear_of_edges(box: Tuple[int, int, int, int], size: Tuple[int, int]) -> bool:
+    """Whether `box` keeps at least one untouched pixel on every side of a
+    `size` canvas. Ink that reaches the edge may have been cut off by it.
+    """
+    left, top, right, bottom = box
+    return left >= 1 and top >= 1 and right <= size[0] - 1 and bottom <= size[1] - 1
+
+
+def fit_to_canvas(text: str, fits: Callable[[str], bool], what: str, size: Tuple[int, int],
+                  font_path: Optional[FontPath] = None, transform: Callable[[str], str] = lambda s: s,
+                  monotone: bool = True) -> str:
+    """The longest leading part of `text` that still `fits` once drawn, after
+    `transform` (a technique's own rewrite, such as reversing it).
+
+    The cut falls after the last whole word that fits. If not even the first
+    word fits it falls inside that word, and if not even its first character
+    fits this raises, because the image would carry no payload. `monotone`
+    says a longer cut never fits where a shorter one did not, which allows a
+    binary search instead of trying every cut.
+    """
+    if not text or fits(transform(text)):
+        return transform(text)
+    words = [m.span() for m in re.finditer(r"\S+", text)]
+    if words:
+        start, first_end = words[0]
+        ends = list(range(start + 1, first_end)) + [end for _, end in words if end < len(text)]
+    else:
+        ends = []
+
+    def ok(end: int) -> bool:
+        drawn = transform(text[:end])
+        return draws_ink(drawn, font_path) and fits(drawn)
+
+    best = None
+    if monotone:
+        lo, hi = 0, len(ends)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if ok(ends[mid]):
+                best, lo = ends[mid], mid + 1
+            else:
+                hi = mid
+    else:
+        best = next((end for end in reversed(ends) if ok(end)), None)
+    if best is None:
+        raise ValueError(
+            f"size {size[0]}x{size[1]} leaves no room for {what} to draw even the "
+            f"first character of the instruction"
+        )
+    return transform(text[:best])
 
 
 def validate_size(size: Tuple[int, int]) -> Tuple[int, int]:
@@ -250,14 +308,20 @@ def near_background_color(background_rgb: Tuple[int, int, int], delta: int) -> T
     )
 
 
+@functools.lru_cache(maxsize=4096)
+def _text_length(font, text: str, fontmode: str) -> float:
+    """`ImageDraw.textlength`, memoized, since fitting text to a canvas re-wraps many prefixes of it."""
+    return ImageDraw.Draw(Image.new("1" if fontmode == "1" else "L", (1, 1))).textlength(text, font=font)
+
+
 def _split_long_word(draw: ImageDraw.ImageDraw, word: str, font, max_width: int) -> List[str]:
-    if draw.textlength(word, font=font) <= max_width:
+    if _text_length(font, word, draw.fontmode) <= max_width:
         return [word]
     pieces: List[str] = []
     cur = ""
     for ch in word:
         trial = cur + ch
-        if cur and draw.textlength(trial, font=font) > max_width:
+        if cur and _text_length(font, trial, draw.fontmode) > max_width:
             pieces.append(cur)
             cur = ch
         else:
@@ -280,7 +344,7 @@ def wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> Lis
     for word in words:
         for piece in _split_long_word(draw, word, font, max_width):
             trial = f"{cur} {piece}".strip()
-            if cur and draw.textlength(trial, font=font) > max_width:
+            if cur and _text_length(font, trial, draw.fontmode) > max_width:
                 lines.append(cur)
                 cur = piece
             else:

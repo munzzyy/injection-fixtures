@@ -283,6 +283,17 @@ def test_render_all_writes_the_rendered_text_alongside_the_instruction(tmp_path)
         assert by_id[sample_id]["rendered_text"] is None
 
 
+def test_render_all_manifest_reports_the_text_cut_to_a_small_canvas(tmp_path):
+    code, _, _ = _run(["render", "--all", "--size", "300x150", "--out", str(tmp_path)])
+    assert code == 0
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    by_id = {entry["technique"]: entry for entry in manifest}
+    for technique_id in CATALOG:
+        assert by_id[technique_id]["rendered_text"] == rendered_instruction(
+            technique_id, cli.DEFAULT_INSTRUCTION, size=(300, 150))
+    assert len(by_id["color-camouflage"]["rendered_text"]) < len(cli.DEFAULT_INSTRUCTION)
+
+
 def test_render_all_leaves_nothing_behind_when_a_render_fails(tmp_path):
     # A generator raising partway through used to leave a directory holding 5
     # of the 12 images, and a detector benchmarked against it would silently

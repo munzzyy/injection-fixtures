@@ -62,7 +62,7 @@ def make_injection_image():
             ocr_expected=technique.ocr_expected,
             image=image,
             bbox=bbox,
-            rendered_text=rendered_instruction(technique.id, text, font_path),
+            rendered_text=rendered_instruction(technique.id, text, font_path, size=size),
             provenance=technique.provenance,
         )
 

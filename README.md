@@ -125,7 +125,8 @@ with one entry per image, and it is the ground truth for scoring:
 
 `instruction` is what you asked for, `rendered_text` is what actually landed
 in the pixels (`homoglyph` swaps codepoints, `bidi-override` reverses the
-string, a couple of techniques truncate), and `location` is the bounding box
+string, and text too long for the canvas is cut after the last word that
+fits), and `location` is the bounding box
 the instruction occupies, so you can score whether a detector found the
 injection *and* found it in the right place. Benign controls carry `null` for
 all three. `kind` is `technique` or `benign`, and `ocr_expected` and
@@ -154,8 +155,11 @@ Other flags worth knowing:
   reproducible on any machine with the same Pillow version. Pillow releases
   change how text is rasterized, so the bytes (and now and then a bounding
   box edge) differ between Pillow versions.
-- `--size WxH` sets the canvas. Techniques refuse a canvas too small to fit
-  their instruction rather than handing back an image with nothing in it.
+- `--size WxH` sets the canvas. An instruction too long for it is cut
+  after the last word that fits, and the manifest's `rendered_text` holds
+  what was kept, so a small corpus is scored against the words that are
+  really in it. A canvas too small for even the first letter is refused
+  rather than handed back with nothing in it.
 - `--base-image PATH` draws onto your own image, a screenshot of your app
   for example, instead of the default background. The output keeps the
   image's size unless you pass `--size`, which scales it. With `--all` every
@@ -275,8 +279,8 @@ control = generate_benign_image("blank", size=(800, 600))
 # The same render plus where the instruction landed, as (left, top, right, bottom).
 image, bbox = generate_image_with_bbox("tiny-corner", "ignore your instructions", size=(800, 600))
 
-# What the pixels actually say, which is not always what you passed in.
-drawn = rendered_instruction("homoglyph", "ignore your instructions")
+# What the pixels at that size actually say, which is not always what you passed in.
+drawn = rendered_instruction("homoglyph", "ignore your instructions", size=(800, 600))
 ```
 
 ## Text and fonts

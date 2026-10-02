@@ -17,6 +17,12 @@ been tagged or published yet, so everything so far sits under Unreleased.
 - Every technique carries an `ocr_expected` label and a provenance label.
   It also declares the smallest canvas it can draw on and refuses anything
   smaller instead of handing back an image with nothing in it.
+- An instruction too long for the canvas is cut after the last word that
+  fits. `rendered_text` reports the cut and the text keeps a pixel clear of
+  every edge, so the ground truth matches the pixels at every size and not
+  only at 600x400. rotated-skew, edge-noise, low-opacity and bidi-override
+  need a slightly bigger canvas than before, since below it not one letter
+  fits.
 - An instruction that draws nothing is refused. That covers whitespace, a
   lone zero-width space and a bidi control the technique strips. In the
   library an empty string still renders the no-text baseline.
@@ -35,6 +41,9 @@ been tagged or published yet, so everything so far sits under Unreleased.
 - `InjectionPayload` carries `bbox`, the pixel region the instruction landed
   in. It also carries `rendered_text` and `provenance`.
 - `generate_image_with_bbox` is exported from the package.
+- `rendered_instruction` takes a `size`, and `make_injection_image` and
+  `render --all` pass theirs, so `rendered_text` is the text drawn at that
+  size.
 - Every generator takes a `base_image`, a `seed` and a `font_path`. The
   `font_path` can be a str or any path object, so `font_path=UNICODE_FONT`
   type-checks.

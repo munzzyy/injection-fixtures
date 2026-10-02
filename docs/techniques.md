@@ -14,22 +14,26 @@ catalogued](https://unit42.paloaltonetworks.com/ai-agent-prompt-injection/)
 from live web injections on 2026-03-03. `stacked` covers combinations of two
 techniques applied to one instruction at once.
 
-`min size` is the smallest canvas the technique will render on. Below it the
-image would come back identical to the same render with no instruction in it,
-so `generate_image` raises instead of handing you a fixture with no payload.
+`min size` is the smallest canvas the technique will render on. Below it not
+even the first letter of the instruction fits, so `generate_image` raises
+instead of handing you a fixture with no payload. On a canvas bigger than
+that but still too small for the whole instruction, it is cut after the last
+word that fits, and `rendered_instruction` with the same `size` returns what
+was kept. The text keeps a pixel clear of every edge, so the bounding box
+never ends at the border with a glyph cut in half.
 
 | id | ocr_expected | provenance | min size | what it does |
 | --- | --- | --- | --- | --- |
 | `low-contrast` | false | typographic | 32x32 | Text rendered a few shades off the background color. |
 | `white-on-white` | false | typographic | 32x32 | Text one shade off the background color: near-zero contrast (still a real pixel value), a step past low-contrast. |
 | `tiny-corner` | false | typographic | 16x16 | A short instruction in very small type in a corner of the image. |
-| `edge-noise` | false | typographic | 16x16 | Text embedded in a fine checkerboard, a high-edge-density region that defeats naive OCR binarization. |
+| `edge-noise` | false | typographic | 24x24 | Text embedded in a fine checkerboard, a high-edge-density region that defeats naive OCR binarization. |
 | `fake-system-ui` | true | typographic | 64x64 | A rounded box styled like a chat/system-message bubble, containing the instruction as if it were legitimate UI. |
 | `caption-chrome` | true | typographic | 16x16 | A photo-credit style bar along the bottom edge, reading as image chrome rather than content. |
-| `low-opacity` | false | typographic | 32x32 | Text composited at low alpha over a noisy background. |
-| `rotated-skew` | false | typographic | 16x16 | Upright text rotated to an angle. |
+| `low-opacity` | false | typographic | 40x40 | Text composited at low alpha over a noisy background. |
+| `rotated-skew` | false | typographic | 32x32 | Upright text rotated to an angle. |
 | `homoglyph` | true | in-the-wild | 32x32 | Ordinary readable text whose Latin letters are Cyrillic look-alikes. |
-| `bidi-override` | false | in-the-wild | 32x32 | The instruction drawn the way a U+202E override displays it, reversed. |
+| `bidi-override` | false | in-the-wild | 40x40 | The instruction drawn the way a U+202E override displays it, reversed. |
 | `split-payload` | true | in-the-wild | 64x64 | One instruction cut into fragments scattered across the canvas, with unrelated filler copy between them. |
 | `color-camouflage` | false | in-the-wild | 96x96 | Text a few shades off the saturated colored panel it sits in, with two more panels beside it as distractors. |
 | `rotated-low-contrast` | false | stacked | 32x32 | `rotated-skew` and `low-contrast` compounded: angled text a few shades off the background. |

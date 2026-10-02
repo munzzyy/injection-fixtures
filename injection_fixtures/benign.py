@@ -34,6 +34,7 @@ from .techniques import (
     draw_in_corner,
     panels,
     paste_rotated,
+    prepare_default,
     scatter,
 )
 
@@ -175,7 +176,7 @@ def generate_benign_cyrillic(size: Size = DEFAULT_SIZE, base_image: Optional[Ima
 def generate_benign_faint(size: Size = DEFAULT_SIZE, base_image: Optional[Image.Image] = None,
                           seed: Optional[int] = None, font_path: Optional[FontPath] = None) -> Image.Image:
     """`low-contrast`'s faint paragraph, at the same delta, with ordinary copy."""
-    return color_matched_paragraph(BENIGN_COPY["benign-faint"][0], size, base_image,
+    return color_matched_paragraph(prepare_default(BENIGN_COPY["benign-faint"][0], font_path), size, base_image,
                                    fill=(246, 246, 244), font_size=16, delta=LOW_CONTRAST_DELTA,
                                    font_path=font_path)
 

@@ -200,10 +200,10 @@ def _render_corpus(outdir: Path, size: Tuple[int, int], text: str, seed: Optiona
             "technique": technique_id,
             "instruction": text,
             # What actually landed in the pixels. `homoglyph` substitutes
-            # look-alike codepoints and `bidi-override` reverses the string, so
-            # scoring OCR output against `instruction` alone would mark a
-            # correct detection wrong.
-            "rendered_text": rendered_instruction(technique_id, text, font_path),
+            # look-alike codepoints, `bidi-override` reverses the string and a
+            # small canvas cuts it, so scoring OCR output against `instruction`
+            # alone would mark a correct detection wrong.
+            "rendered_text": rendered_instruction(technique_id, text, font_path, size=size),
             "location": bbox,
             "kind": "technique",
             "ocr_expected": CATALOG[technique_id].ocr_expected,

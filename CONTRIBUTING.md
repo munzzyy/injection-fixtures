@@ -38,7 +38,8 @@ A new technique needs four things in the same PR:
 - a generator function in `injection_fixtures/techniques.py` with the
   signature `(instruction_text, size, base_image=None, seed=None,
   font_path=None) -> Image`
-- a `prepare` function returning the exact string the generator draws, so the
+- a `prepare` function that takes the canvas size and returns the exact
+  string the generator draws at that size (cut to what fits), so the
   ground-truth manifest records what is in the pixels rather than what the
   caller passed in
 - an entry in `CATALOG` in `injection_fixtures/catalog.py` with a real
@@ -54,9 +55,13 @@ A new technique needs four things in the same PR:
 Two rules the test suite enforces, so it's cheaper to know them up front.
 Renders are byte-reproducible: same input and same Pillow version, same
 bytes, on every machine. That rules out unseeded randomness. And a technique
-either carries its instruction or raises. Returning an image that looks fine
-but has no payload in it is the one failure mode this package exists to
-prevent, because a detector scored against it passes for free.
+either carries its instruction or raises. When the canvas is too small for
+all of it the technique draws the words that fit and `prepare` returns
+exactly those. Returning an image that looks fine but carries no payload (or
+less of one than the ground truth says) is the one failure mode this package
+exists to prevent, because a detector scored against it passes for free.
+`tests/test_ground_truth.py` checks this for every technique across a range
+of sizes.
 
 ## Zero extra dependencies
 

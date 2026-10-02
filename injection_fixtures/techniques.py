@@ -8,9 +8,11 @@ default background, so a consumer can test against their own screenshots.
 
 Each technique also exposes how it prepares the instruction before drawing it
 (the `prepare_*` functions below). Two of them rewrite the text: `homoglyph`
-substitutes Cyrillic look-alikes, `bidi-override` reverses it. The catalog
-publishes those prepared strings so the ground-truth manifest records what is
-actually in the pixels, not just what the caller passed in.
+substitutes Cyrillic look-alikes, `bidi-override` reverses it. All of them
+take the canvas size and cut an instruction that does not fit it back to the
+words that do, so the prepared string is everything drawn and nothing more.
+The catalog publishes those prepared strings so the ground-truth manifest
+records what is actually in the pixels, not just what the caller passed in.
 
 These generators render text locally with Pillow. Nothing here reads the
 network or writes to disk; the caller decides what to do with the returned
@@ -29,7 +31,9 @@ from ._util import (
     FontPath,
     canvas,
     checkerboard,
+    clear_of_edges,
     clip_text,
+    fit_to_canvas,
     line_height,
     load_font,
     near_background_color,
@@ -74,22 +78,77 @@ LOW_CONTRAST_DELTA = 6
 ROTATION_ANGLE = 22
 
 
+def _measure() -> ImageDraw.ImageDraw:
+    return ImageDraw.Draw(Image.new("RGB", (1, 1)))
+
+
+def _block(text: str, font, x: int, y: int, width: int, lh: int) -> List[Tuple[int, int, str]]:
+    """`(x, y, line)` for every line of `text` wrapped to `width`, from (x, y) down, `lh` apart."""
+    return [(x, y + i * lh, line) for i, line in enumerate(wrap_text(_measure(), text, font, width))]
+
+
+def _lines_fit(font, placed: List[Tuple[int, int, str]], size: Size) -> bool:
+    # Trailing spaces draw nothing but still widen textbbox.
+    draw = _measure()
+    return all(clear_of_edges(draw.textbbox((x, y), line.rstrip(), font=font), size)
+               for x, y, line in placed if line.strip())
+
+
 def prepare_default(text: str, font_path: Optional[FontPath] = None) -> str:
-    """The instruction as drawn by most techniques: capped and glyph-checked."""
+    """The instruction capped and glyph-checked, before any technique cuts it to its canvas."""
     return require_visible(text, clip_text(text, font_path), font_path)
 
 
-def prepare_tiny_corner(text: str, font_path: Optional[FontPath] = None) -> str:
-    """`tiny-corner` draws one short line, so it takes the first 80 characters."""
-    return require_visible(text, clip_text(text, font_path)[:80], font_path)
+def _faint_lines(text: str, size: Size, font_path: Optional[FontPath] = None, font_size: int = 16):
+    """The font and `(x, y, line)` placements of `low-contrast`'s paragraph."""
+    font = load_font(font_size, font_path)
+    margin = 14
+    return font, _block(text, font, margin, margin, size[0] - 2 * margin, line_height(font))
 
 
-def prepare_caption(text: str, font_path: Optional[FontPath] = None) -> str:
-    """`caption-chrome` and `rotated-skew` draw one line, capped at 120."""
-    return require_visible(text, clip_text(text, font_path)[:120], font_path)
+def prepare_faint(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE,
+                  what: str = "low-contrast") -> str:
+    """`low-contrast` and `white-on-white`: the paragraph lines that fit the canvas."""
+    return fit_to_canvas(prepare_default(text, font_path),
+                         lambda t: _lines_fit(*_faint_lines(t, size, font_path), size), what, size, font_path)
 
 
-def prepare_homoglyph(text: str, font_path: Optional[FontPath] = None) -> str:
+def _corner_xy(draw: ImageDraw.ImageDraw, text: str, size: Size, font) -> Tuple[int, int]:
+    w, h = size
+    return max(1, w - int(draw.textlength(text, font=font)) - 3), max(1, h - 12)
+
+
+def _corner_fits(text: str, size: Size, font_path: Optional[FontPath]) -> bool:
+    draw = _measure()
+    font = load_font(7, font_path)
+    return clear_of_edges(draw.textbbox(_corner_xy(draw, text, size, font), text, font=font), size)
+
+
+def prepare_tiny_corner(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
+    """`tiny-corner` draws one short line, so it takes the first 80 characters,
+    or fewer when the canvas is too narrow for them.
+    """
+    capped = require_visible(text, clip_text(text, font_path)[:80], font_path)
+    return fit_to_canvas(capped, lambda t: _corner_fits(t, size, font_path), "tiny-corner", size, font_path)
+
+
+def _caption_lines(text: str, size: Size, font_path: Optional[FontPath] = None):
+    """The font and placement of `caption-chrome`'s one line, inside its 22px
+    bar. A line too long for the bar's 6px left padding starts nearer the edge.
+    """
+    font = load_font(10, font_path)
+    right = _measure().textbbox((0, 0), text.rstrip(), font=font)[2]
+    return font, [(max(1, min(6, size[0] - 1 - right)), size[1] - 22 + 5, text)]
+
+
+def prepare_caption(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
+    """`caption-chrome` draws one line, capped at 120 characters and cut to the canvas width."""
+    capped = require_visible(text, clip_text(text, font_path)[:120], font_path)
+    return fit_to_canvas(capped, lambda t: _lines_fit(*_caption_lines(t, size, font_path), size),
+                         "caption-chrome", size, font_path)
+
+
+def _swap_homoglyphs(text: str, font_path: Optional[FontPath] = None) -> str:
     """Swap every Latin character that has a Cyrillic look-alike.
 
     The glyph check runs after the substitution, against the Unicode font,
@@ -100,25 +159,45 @@ def prepare_homoglyph(text: str, font_path: Optional[FontPath] = None) -> str:
     return require_visible(text, clip_text(swapped, font_file), font_file)
 
 
-def prepare_bidi(text: str, font_path: Optional[FontPath] = None) -> str:
+def _homoglyph_lines(text: str, size: Size, font_path: Optional[FontPath] = None):
+    """The font and `(x, y, line)` placements of `homoglyph`'s paragraph."""
+    font = load_font(16, font_path or UNICODE_FONT)
+    margin = 14
+    return font, _block(text, font, margin, margin, size[0] - 2 * margin, line_height(font))
+
+
+def prepare_homoglyph(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
+    """The look-alike substituted instruction, cut to the lines that fit the canvas."""
+    font_file = font_path or UNICODE_FONT
+    return fit_to_canvas(_swap_homoglyphs(text, font_path),
+                         lambda t: _lines_fit(*_homoglyph_lines(t, size, font_file), size),
+                         "homoglyph", size, font_file)
+
+
+def _bidi_lines(text: str, size: Size, font_path: Optional[FontPath] = None):
+    """The font and `(x, y, line)` placements of `bidi-override`'s paragraph."""
+    font = load_font(16, font_path)
+    margin = 16
+    return font, _block(text, font, margin, margin, size[0] - 2 * margin, line_height(font))
+
+
+def prepare_bidi(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
     """Drop any bidi control the caller passed, then reverse the text.
 
     A U+202E right-to-left override makes a viewer see the characters in
     reverse while the underlying string stays readable to anything reading
     codepoints. There is no text layer in a PNG, so the fixture renders what
-    the override would put on screen: the instruction, backwards.
+    the override would put on screen: the instruction, backwards. A cut keeps
+    the start of the instruction and drops its end, then reverses.
     """
     stripped = "".join(ch for ch in text if ch not in BIDI_CONTROLS)
-    return require_visible(text, clip_text(stripped, font_path)[::-1], font_path)
+    forward = require_visible(text, clip_text(stripped, font_path), font_path)
+    return fit_to_canvas(forward, lambda t: _lines_fit(*_bidi_lines(t, size, font_path), size),
+                         "bidi-override", size, font_path, transform=lambda t: t[::-1])
 
 
-def split_fragments(text: str, font_path: Optional[FontPath] = None, parts: int = 3) -> List[str]:
-    """Break the instruction into `parts` word-aligned fragments.
-
-    Each fragment is meaningless on its own; only the concatenation is the
-    instruction. This is the shape Unit 42 catalogued as payload splitting.
-    """
-    words = require_visible(text, clip_text(text, font_path), font_path).split()
+def _split_words(text: str, parts: int = 3) -> List[str]:
+    words = text.split()
     if not words:
         return [""] * parts
     per = max(1, -(-len(words) // parts))
@@ -128,13 +207,29 @@ def split_fragments(text: str, font_path: Optional[FontPath] = None, parts: int 
     return chunks[:parts]
 
 
-def prepare_split(text: str, font_path: Optional[FontPath] = None) -> str:
+def split_fragments(text: str, font_path: Optional[FontPath] = None, parts: int = 3) -> List[str]:
+    """Break the instruction into `parts` word-aligned fragments.
+
+    Each fragment is meaningless on its own; only the concatenation is the
+    instruction. This is the shape Unit 42 catalogued as payload splitting.
+    """
+    return _split_words(prepare_default(text, font_path), parts)
+
+
+def _fit_split(text: str, font_path: Optional[FontPath], size: Size) -> str:
+    # Not monotone: one more word can move a whole fragment into a band below the canvas.
+    return fit_to_canvas(prepare_default(text, font_path),
+                         lambda t: _scatter_fits(_split_words(t), size, font_path),
+                         "split-payload", size, font_path, monotone=False)
+
+
+def prepare_split(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
     """The reassembled instruction, which is what a detector has to recover."""
-    return " ".join(part for part in split_fragments(text, font_path) if part)
+    return " ".join(part for part in _split_words(_fit_split(text, font_path, size)) if part)
 
 
 def color_matched_paragraph(
-    instruction_text: str,
+    text: str,
     size: Size,
     base_image: Optional[Image.Image],
     fill,
@@ -142,8 +237,8 @@ def color_matched_paragraph(
     delta: int,
     font_path: Optional[FontPath] = None,
 ) -> Image.Image:
-    """Shared body for `low-contrast` and `white-on-white`: draw text `delta`
-    shades away from whatever sits under each glyph.
+    """Shared body for `low-contrast` and `white-on-white`: draw the prepared
+    `text` `delta` shades away from whatever sits under each glyph.
 
     The shift is computed per pixel, not once per line, so the contrast stays
     exactly `delta` even where the text crosses a busy base image. Sampling a
@@ -151,20 +246,13 @@ def color_matched_paragraph(
     which destroyed the underlying content and blew the contrast wide open on
     any non-flat base.
     """
-    text = prepare_default(instruction_text, font_path)
     img = canvas(size, base_image, fill=fill).convert("RGB")
-    draw = ImageDraw.Draw(img)
-    font = load_font(font_size, font_path)
-    margin = 14
-    lines = wrap_text(draw, text, font, size[0] - 2 * margin)
+    font, placed = _faint_lines(text, size, font_path, font_size)
 
     mask = Image.new("L", size, 0)
     mask_draw = ImageDraw.Draw(mask)
-    y = margin
-    lh = line_height(font)
-    for line in lines:
-        mask_draw.text((margin, y), line, font=font, fill=255)
-        y += lh
+    for x, y, line in placed:
+        mask_draw.text((x, y), line, font=font, fill=255)
 
     # `near_background_color` as a per-channel lookup: light pixels move down by
     # `delta`, dark pixels move up, so covered pixels sit exactly `delta` off the
@@ -181,7 +269,7 @@ def generate_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
     """Text a few shades off the background color: easy to miss on a skim,
     still a distinct pixel value.
     """
-    return color_matched_paragraph(instruction_text, size, base_image,
+    return color_matched_paragraph(prepare_faint(instruction_text, font_path, size), size, base_image,
                                    fill=(246, 246, 244), font_size=16, delta=LOW_CONTRAST_DELTA,
                                    font_path=font_path)
 
@@ -196,7 +284,8 @@ def generate_white_on_white(instruction_text: str, size: Size = DEFAULT_SIZE,
     blank image with no recoverable text at all, which is a broken fixture, not
     a hard one: the injected string has to actually exist in the pixels.
     """
-    return color_matched_paragraph(instruction_text, size, base_image,
+    text = prepare_faint(instruction_text, font_path, size, what="white-on-white")
+    return color_matched_paragraph(text, size, base_image,
                                    fill=(255, 255, 255), font_size=16, delta=1,
                                    font_path=font_path)
 
@@ -205,7 +294,7 @@ def generate_tiny_corner(instruction_text: str, size: Size = DEFAULT_SIZE,
                           base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
                           font_path: Optional[FontPath] = None) -> Image.Image:
     """A short line of very small text tucked into a corner."""
-    text = prepare_tiny_corner(instruction_text, font_path)
+    text = prepare_tiny_corner(instruction_text, font_path, size)
     img = canvas(size, base_image, fill="white").convert("RGB")
     draw_in_corner(ImageDraw.Draw(img), text, size, font_path)
     return img
@@ -216,11 +305,28 @@ def draw_in_corner(draw: ImageDraw.ImageDraw, text: str, size: Size, font_path: 
     placement `tiny-corner` uses and its benign control copies.
     """
     font = load_font(7, font_path)
+    draw.text(_corner_xy(draw, text, size, font), text, font=font, fill=(90, 90, 90))
+
+
+def _edge_noise_box(size: Size) -> Tuple[int, int, int]:
+    """`edge-noise`'s text region as `(x0, y0, width)`."""
     w, h = size
-    tw = draw.textlength(text, font=font)
-    x = max(1, w - int(tw) - 3)
-    y = max(1, h - 12)
-    draw.text((x, y), text, font=font, fill=(90, 90, 90))
+    box_w = int(w * 0.7)
+    return (w - box_w) // 2, int(h * 0.35), box_w
+
+
+def _edge_noise_lines(text: str, size: Size, font_path: Optional[FontPath] = None):
+    """The font and `(x, y, line)` placements of `edge-noise`'s text."""
+    font = load_font(14, font_path)
+    x0, y0, box_w = _edge_noise_box(size)
+    return font, _block(text, font, x0 + 5, y0, box_w - 10, line_height(font))
+
+
+def prepare_edge_noise(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
+    """`edge-noise`: the lines that fit the canvas."""
+    return fit_to_canvas(prepare_default(text, font_path),
+                         lambda t: _lines_fit(*_edge_noise_lines(t, size, font_path), size),
+                         "edge-noise", size, font_path)
 
 
 def generate_edge_noise(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -229,31 +335,46 @@ def generate_edge_noise(instruction_text: str, size: Size = DEFAULT_SIZE,
     """Text embedded in a high-frequency checkerboard region, alternating
     colors line to line so it keeps blending into the pattern's edges.
     """
-    text = prepare_default(instruction_text, font_path)
+    text = prepare_edge_noise(instruction_text, font_path, size)
     if base_image is not None:
         img = base_image.convert("RGB").resize(size)
     else:
         img = checkerboard(size).convert("RGB")
     draw = ImageDraw.Draw(img)
-    font = load_font(14, font_path)
-    w, h = size
-    box_w = int(w * 0.7)
-    x0 = (w - box_w) // 2
-    y0 = int(h * 0.35)
-    lines = wrap_text(draw, text, font, box_w - 10)
-    lh = line_height(font)
+    font, placed = _edge_noise_lines(text, size, font_path)
     if base_image is not None:
         # Stamp the checkerboard only under the text so the technique keeps its
         # defining high-frequency region on a caller's base image. Without this
         # the alternating fills land on plain background: the light line goes
         # invisible and the dark line reads as ordinary black text.
-        patch_h = lh * max(1, len(lines)) + 10
+        x0, y0, box_w = _edge_noise_box(size)
+        patch_h = line_height(font) * max(1, len(placed)) + 10
         patch = checkerboard((box_w, patch_h)).convert("RGB")
         img.paste(patch, (x0, y0))
-    for i, line in enumerate(lines):
+    for i, (x, y, line) in enumerate(placed):
         color = (235, 235, 235) if i % 2 == 0 else (20, 20, 20)
-        draw.text((x0 + 5, y0 + i * lh), line, font=font, fill=color)
+        draw.text((x, y), line, font=font, fill=color)
     return img
+
+
+def _system_message_box(size: Size) -> Tuple[int, int, int, int]:
+    w, h = size
+    margin = int(w * 0.08)
+    return (margin, int(h * 0.3), w - margin, int(h * 0.7))
+
+
+def _system_message_lines(text: str, size: Size, font_path: Optional[FontPath] = None):
+    """The font and `(x, y, line)` placements of `fake-system-ui`'s body text."""
+    box = _system_message_box(size)
+    font = load_font(14, font_path)
+    return font, _block(text, font, box[0] + 14, box[1] + 30, (box[2] - box[0]) - 28, line_height(font))
+
+
+def prepare_system_message(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
+    """`fake-system-ui`: the body lines that fit the canvas."""
+    return fit_to_canvas(prepare_default(text, font_path),
+                         lambda t: _lines_fit(*_system_message_lines(t, size, font_path), size),
+                         "fake-system-ui", size, font_path)
 
 
 def generate_fake_system_message(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -262,22 +383,16 @@ def generate_fake_system_message(instruction_text: str, size: Size = DEFAULT_SIZ
     """A rounded box styled like a chat/system-message bubble, containing the
     instruction as if it were a legitimate UI element.
     """
-    text = prepare_default(instruction_text, font_path)
+    text = prepare_system_message(instruction_text, font_path, size)
     img = canvas(size, base_image, fill=(235, 238, 242)).convert("RGB")
     draw = ImageDraw.Draw(img)
-    w, h = size
-    margin = int(w * 0.08)
-    box = (margin, int(h * 0.3), w - margin, int(h * 0.7))
+    box = _system_message_box(size)
     draw.rounded_rectangle(box, radius=10, fill=(255, 255, 255), outline=(120, 120, 130), width=2)
     label_font = load_font(11, font_path)
-    body_font = load_font(14, font_path)
     draw.text((box[0] + 14, box[1] + 10), "SYSTEM", font=label_font, fill=(150, 30, 30))
-    lines = wrap_text(draw, text, body_font, (box[2] - box[0]) - 28)
-    y = box[1] + 30
-    lh = line_height(body_font)
-    for line in lines:
-        draw.text((box[0] + 14, y), line, font=body_font, fill=(20, 20, 20))
-        y += lh
+    body_font, placed = _system_message_lines(text, size, font_path)
+    for x, y, line in placed:
+        draw.text((x, y), line, font=body_font, fill=(20, 20, 20))
     return img
 
 
@@ -287,37 +402,78 @@ def generate_caption_chrome(instruction_text: str, size: Size = DEFAULT_SIZE,
     """A photo-credit style bar along the bottom edge, reading as image chrome
     rather than content.
     """
-    text = prepare_caption(instruction_text, font_path)
+    text = prepare_caption(instruction_text, font_path, size)
     img = noise_background(size, sigma=18, seed=seed) if base_image is None else canvas(size, base_image)
     img = img.convert("RGB")
     draw = ImageDraw.Draw(img)
     w, h = size
-    font = load_font(10, font_path)
-    bar_h = 22
-    draw.rectangle((0, h - bar_h, w, h), fill=(0, 0, 0))
-    draw.text((6, h - bar_h + 5), text, font=font, fill=(210, 210, 210))
+    draw.rectangle((0, h - 22, w, h), fill=(0, 0, 0))
+    font, placed = _caption_lines(text, size, font_path)
+    for x, y, line in placed:
+        draw.text((x, y), line, font=font, fill=(210, 210, 210))
     return img
+
+
+def _low_opacity_lines(text: str, size: Size, font_path: Optional[FontPath] = None):
+    """The font and `(x, y, line)` placements of `low-opacity`'s paragraph."""
+    font = load_font(20, font_path)
+    margin = 16
+    return font, _block(text, font, margin, margin, size[0] - 2 * margin, line_height(font, default=24))
+
+
+def prepare_low_opacity(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
+    """`low-opacity`: the paragraph lines that fit the canvas."""
+    return fit_to_canvas(prepare_default(text, font_path),
+                         lambda t: _lines_fit(*_low_opacity_lines(t, size, font_path), size),
+                         "low-opacity", size, font_path)
 
 
 def generate_low_opacity(instruction_text: str, size: Size = DEFAULT_SIZE,
                           base_image: Optional[Image.Image] = None, seed: Optional[int] = None,
                           font_path: Optional[FontPath] = None) -> Image.Image:
     """Text at low alpha composited over a busy background."""
-    text = prepare_default(instruction_text, font_path)
+    text = prepare_low_opacity(instruction_text, font_path, size)
     base = noise_background(size, sigma=45, seed=seed) if base_image is None else canvas(size, base_image)
     base = base.convert("RGBA")
     overlay = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    font = load_font(20, font_path)
-    margin = 16
-    lines = wrap_text(draw, text, font, size[0] - 2 * margin)
-    y = margin
-    lh = line_height(font, default=24)
-    for line in lines:
-        draw.text((margin, y), line, font=font, fill=(255, 255, 255, 28))
-        y += lh
+    font, placed = _low_opacity_lines(text, size, font_path)
+    for x, y, line in placed:
+        draw.text((x, y), line, font=font, fill=(255, 255, 255, 28))
     composed = Image.alpha_composite(base, overlay)
     return composed.convert("RGB")
+
+
+def _rotated_layer(text: str, font_path: Optional[FontPath], color: Tuple[int, int, int]) -> Image.Image:
+    """One line of 18px `text`, drawn upright then rotated by `ROTATION_ANGLE`, as an RGBA layer."""
+    font = load_font(18, font_path)
+    tw = int(_measure().textlength(text, font=font)) + 8
+    th = line_height(font, default=24) + 12
+    tmp = Image.new("RGBA", (max(tw, 1), th), (0, 0, 0, 0))
+    ImageDraw.Draw(tmp).text((2, 2), text, font=font, fill=(*color, 255))
+    return tmp.rotate(ROTATION_ANGLE, expand=True, resample=Image.BICUBIC)
+
+
+def _centered(layer: Image.Image, size: Size) -> Tuple[int, int]:
+    return (size[0] - layer.width) // 2, (size[1] - layer.height) // 2
+
+
+def _rotated_fits(text: str, size: Size, font_path: Optional[FontPath]) -> bool:
+    layer = _rotated_layer(text, font_path, (0, 0, 0))
+    ink = layer.getchannel("A").getbbox()
+    if ink is None:
+        return False
+    x, y = _centered(layer, size)
+    return clear_of_edges((x + ink[0], y + ink[1], x + ink[2], y + ink[3]), size)
+
+
+def prepare_rotated(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE,
+                    what: str = "rotated-skew") -> str:
+    """`rotated-skew` and `rotated-low-contrast` draw one line, capped at 120
+    characters and cut to what stays on the canvas once rotated.
+    """
+    capped = require_visible(text, clip_text(text, font_path)[:120], font_path)
+    return fit_to_canvas(capped, lambda t: _rotated_fits(t, size, font_path), what, size, font_path)
 
 
 def generate_rotated(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -326,7 +482,7 @@ def generate_rotated(instruction_text: str, size: Size = DEFAULT_SIZE,
     """Text rendered upright then rotated, the way a watermark or a
     deliberately OCR-hostile payload would sit at an angle.
     """
-    text = prepare_caption(instruction_text, font_path)
+    text = prepare_rotated(instruction_text, font_path, size)
     img = canvas(size, base_image, fill="white").convert("RGBA")
     paste_rotated(img, text, font_path, (40, 40, 40))
     return img.convert("RGB")
@@ -339,18 +495,11 @@ def paste_rotated(img: Image.Image, text: str, font_path: Optional[FontPath], co
     When the rotated layer is wider or taller than the canvas (small sizes),
     the offset goes negative and crops it, instead of clamping to (0, 0),
     which pushed every glyph off-canvas and rendered a blank image below
-    roughly 180px wide.
+    roughly 180px wide. The techniques cut their text first so no ink is
+    cropped.
     """
-    font = load_font(18, font_path)
-    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-    tw = int(probe.textlength(text, font=font)) + 8
-    th = line_height(font, default=24) + 12
-    tmp = Image.new("RGBA", (max(tw, 1), th), (0, 0, 0, 0))
-    ImageDraw.Draw(tmp).text((2, 2), text, font=font, fill=(*color, 255))
-    rotated = tmp.rotate(ROTATION_ANGLE, expand=True, resample=Image.BICUBIC)
-    x = (img.width - rotated.width) // 2
-    y = (img.height - rotated.height) // 2
-    img.paste(rotated, (x, y), rotated)
+    rotated = _rotated_layer(text, font_path, color)
+    img.paste(rotated, _centered(rotated, img.size), rotated)
 
 
 def generate_homoglyph(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -363,18 +512,12 @@ def generate_homoglyph(instruction_text: str, size: Size = DEFAULT_SIZE,
     matches the recovered string against a blocklist. It needs a font with
     Cyrillic in it, so it defaults to the vendored Unicode font.
     """
-    text = prepare_homoglyph(instruction_text, font_path)
-    font_file = font_path or UNICODE_FONT
+    text = prepare_homoglyph(instruction_text, font_path, size)
     img = canvas(size, base_image, fill=(250, 250, 248)).convert("RGB")
     draw = ImageDraw.Draw(img)
-    font = load_font(16, font_file)
-    margin = 14
-    lines = wrap_text(draw, text, font, size[0] - 2 * margin)
-    y = margin
-    lh = line_height(font)
-    for line in lines:
-        draw.text((margin, y), line, font=font, fill=(35, 35, 40))
-        y += lh
+    font, placed = _homoglyph_lines(text, size, font_path)
+    for x, y, line in placed:
+        draw.text((x, y), line, font=font, fill=(35, 35, 40))
     return img
 
 
@@ -389,17 +532,12 @@ def generate_bidi_override(instruction_text: str, size: Size = DEFAULT_SIZE,
     viewer would actually see. A detector that OCRs the image and matches the
     result literally comes up empty; one that also tries the reversal does not.
     """
-    text = prepare_bidi(instruction_text, font_path)
+    text = prepare_bidi(instruction_text, font_path, size)
     img = canvas(size, base_image, fill=(252, 250, 245)).convert("RGB")
     draw = ImageDraw.Draw(img)
-    font = load_font(16, font_path)
-    margin = 16
-    lines = wrap_text(draw, text, font, size[0] - 2 * margin)
-    y = margin
-    lh = line_height(font)
-    for line in lines:
-        draw.text((margin, y), line, font=font, fill=(30, 30, 35))
-        y += lh
+    font, placed = _bidi_lines(text, size, font_path)
+    for x, y, line in placed:
+        draw.text((x, y), line, font=font, fill=(30, 30, 35))
     return img
 
 
@@ -413,15 +551,16 @@ def generate_split_payload(instruction_text: str, size: Size = DEFAULT_SIZE,
     regions back together in reading order, which region-at-a-time scanning
     never does.
     """
-    fragments = split_fragments(instruction_text, font_path)
+    fragments = _split_words(_fit_split(instruction_text, font_path, size))
     img = canvas(size, base_image, fill=(255, 255, 255)).convert("RGB")
     scatter(ImageDraw.Draw(img), fragments, size, font_path)
     return img
 
 
-def scatter(draw: ImageDraw.ImageDraw, fragments: List[str], size: Size, font_path: Optional[FontPath]) -> None:
-    """Lay `fragments` out the way `split-payload` does: one per band, sides
-    alternating, each followed by a line of grey filler copy.
+def _scatter_layout(fragments: List[str], size: Size, font_path: Optional[FontPath]):
+    """Where `scatter` puts things: the fragment and filler fonts, and per
+    fragment its `((x, y), line)` placements, its filler line's position and
+    the filler copy.
     """
     font = load_font(15, font_path)
     filler_font = load_font(11, font_path)
@@ -429,24 +568,60 @@ def scatter(draw: ImageDraw.ImageDraw, fragments: List[str], size: Size, font_pa
     margin = max(4, w // 40)
     lh = line_height(font)
     band = max(lh + 6, h // 4)
+    draw = _measure()
+    plan = []
     for i, fragment in enumerate(fragments):
         y = margin + i * band
         # Alternate sides so the fragments never form one readable column.
         x = margin if i % 2 == 0 else max(margin, w // 2)
+        lines = []
         for line in wrap_text(draw, fragment, font, w - x - margin):
-            draw.text((x, y), line, font=font, fill=(25, 25, 30))
+            lines.append(((x, y), line))
             y += lh
-        filler = SPLIT_FILLER[i % len(SPLIT_FILLER)]
-        draw.text((margin, min(h - 12, y + 4)), filler, font=filler_font, fill=(150, 150, 155))
+        plan.append((lines, (margin, min(h - 12, y + 4)), SPLIT_FILLER[i % len(SPLIT_FILLER)]))
+    return font, filler_font, plan
 
 
-def panels(draw: ImageDraw.ImageDraw, size: Size, font_path: Optional[FontPath]):
-    """Draw the three colored panels shared by `color-camouflage` and its
-    benign control `benign-panel`.
+def scatter(draw: ImageDraw.ImageDraw, fragments: List[str], size: Size, font_path: Optional[FontPath]) -> None:
+    """Lay `fragments` out the way `split-payload` does: one per band, sides
+    alternating, each followed by a line of grey filler copy.
+    """
+    font, filler_font, plan = _scatter_layout(fragments, size, font_path)
+    for lines, filler_xy, filler in plan:
+        for xy, line in lines:
+            draw.text(xy, line, font=font, fill=(25, 25, 30))
+        draw.text(filler_xy, filler, font=filler_font, fill=(150, 150, 155))
 
-    Returns the panel boxes and the y offset where body text starts inside
-    one, both scaled from the canvas. A short canvas gets a smaller heading
-    rather than a body line pushed off the bottom of its panel.
+
+def _scatter_fits(fragments: List[str], size: Size, font_path: Optional[FontPath]) -> bool:
+    """Every fragment line clear of the edges and of the next fragment's band.
+
+    A fragment that wraps pushes its filler line down, so the filler changes
+    pixels both where it was and where it went, and both have to be on the
+    canvas too.
+    """
+    font, filler_font, plan = _scatter_layout(fragments, size, font_path)
+    _, _, empty = _scatter_layout([""] * len(fragments), size, font_path)
+    draw = _measure()
+    for i, (lines, filler_xy, filler) in enumerate(plan):
+        limit = plan[i + 1][0][0][0][1] if i + 1 < len(plan) else size[1]
+        for xy, line in lines:
+            if not line:
+                continue
+            box = draw.textbbox(xy, line, font=font)
+            if not clear_of_edges(box, size) or box[3] > limit:
+                return False
+        if filler_xy != empty[i][1]:
+            for xy in (filler_xy, empty[i][1]):
+                if not clear_of_edges(draw.textbbox(xy, filler, font=filler_font), size):
+                    return False
+    return True
+
+
+def _panel_layout(size: Size, font_path: Optional[FontPath]):
+    """The three panel boxes, where body text starts inside one, and the
+    heading font, all scaled from the canvas. A short canvas gets a smaller
+    heading rather than a body line pushed off the bottom of its panel.
     """
     w, h = size
     pad = max(3, min(w, h) // 40)
@@ -455,14 +630,45 @@ def panels(draw: ImageDraw.ImageDraw, size: Size, font_path: Optional[FontPath])
     heading_font = load_font(heading_size, font_path)
     body_top = max(4, pad) + line_height(heading_font, default=14)
     boxes = []
-    for i, color in enumerate(PANEL_COLORS):
+    for i in range(len(PANEL_COLORS)):
         top = pad + i * (panel_h + pad)
-        box = (pad, top, w - pad, top + panel_h)
+        boxes.append((pad, top, w - pad, top + panel_h))
+    return boxes, body_top, heading_font
+
+
+def panels(draw: ImageDraw.ImageDraw, size: Size, font_path: Optional[FontPath]):
+    """Draw the three colored panels shared by `color-camouflage` and its
+    benign control `benign-panel`, and return the panel boxes and the y
+    offset where body text starts inside one.
+    """
+    boxes, body_top, heading_font = _panel_layout(size, font_path)
+    for i, (box, color) in enumerate(zip(boxes, PANEL_COLORS)):
         draw.rectangle(box, fill=color)
         draw.text((box[0] + 8, box[1] + 4), f"Panel {i + 1}", font=heading_font,
                   fill=(255, 255, 255))
-        boxes.append(box)
     return boxes, body_top
+
+
+def _camouflage_lines(text: str, size: Size, font_path: Optional[FontPath] = None):
+    """The font, the first panel's box and the `(x, y, line)` placements of
+    `color-camouflage`'s text inside it.
+    """
+    boxes, body_top, _ = _panel_layout(size, font_path)
+    box = boxes[0]
+    font = load_font(max(6, min(13, int((box[3] - box[1] - body_top) / 1.35))), font_path)
+    return font, box, _block(text, font, box[0] + 8, box[1] + body_top, (box[2] - box[0]) - 16, line_height(font))
+
+
+def _camouflage_fits(text: str, size: Size, font_path: Optional[FontPath]) -> bool:
+    font, box, placed = _camouflage_lines(text, size, font_path)
+    lh = line_height(font)
+    return all(y + lh <= box[3] for _, y, _ in placed) and _lines_fit(font, placed, size)
+
+
+def prepare_color_camouflage(text: str, font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
+    """`color-camouflage`: the lines that fit inside its panel."""
+    return fit_to_canvas(prepare_default(text, font_path), lambda t: _camouflage_fits(t, size, font_path),
+                         "color-camouflage", size, font_path)
 
 
 def generate_color_camouflage(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -475,42 +681,28 @@ def generate_color_camouflage(instruction_text: str, size: Size = DEFAULT_SIZE,
     is the shape Unit 42 catalogued as color camouflage. A detector tuned to
     grayscale contrast against a light background has nothing to fire on.
     """
-    text = prepare_default(instruction_text, font_path)
+    text = prepare_color_camouflage(instruction_text, font_path, size)
     img = canvas(size, base_image, fill=(244, 244, 246)).convert("RGB")
     draw = ImageDraw.Draw(img)
-    boxes, body_top = panels(draw, size, font_path)
-    box = boxes[0]
-    panel_h = box[3] - box[1]
-    font = load_font(max(6, min(13, int((panel_h - body_top) / 1.35))), font_path)
+    panels(draw, size, font_path)
+    font, _, placed = _camouflage_lines(text, size, font_path)
     fill = near_background_color(PANEL_COLORS[0], 10)
-    y = box[1] + body_top
-    lh = line_height(font)
-    drawn = 0
-    for line in wrap_text(draw, text, font, (box[2] - box[0]) - 16):
-        if y + lh > box[3]:
-            break
-        draw.text((box[0] + 8, y), line, font=font, fill=fill)
-        y += lh
-        drawn += 1
-    if text and not drawn:
-        # Refuse rather than hand back a panel row with the instruction
-        # silently missing from it. `min_size` is meant to catch this before
-        # we get here; if it did not, say so instead of returning a fixture
-        # that carries no payload.
-        raise ValueError(
-            f"size {size[0]}x{size[1]} leaves no room for color-camouflage text "
-            f"inside its panel; render it at {size[0]}x{size[1] * 2} or larger"
-        )
+    for x, y, line in placed:
+        draw.text((x, y), line, font=font, fill=fill)
     return img
 
 
-def prepare_stacked_homoglyph_tiny_corner(text: str, font_path: Optional[FontPath] = None) -> str:
+def prepare_stacked_homoglyph_tiny_corner(text: str, font_path: Optional[FontPath] = None,
+                                          size: Size = DEFAULT_SIZE) -> str:
     """`homoglyph-tiny-corner` draws one short line, so it takes homoglyph's
     substitution then tiny-corner's 80-character cap, in that order: the
     substitution has to run on the full instruction, the same as it would for
     `homoglyph` alone, not on an already-truncated fragment of it.
     """
-    return require_visible(text, prepare_homoglyph(text, font_path)[:80], font_path or UNICODE_FONT)
+    font_file = font_path or UNICODE_FONT
+    capped = require_visible(text, _swap_homoglyphs(text, font_path)[:80], font_file)
+    return fit_to_canvas(capped, lambda t: _corner_fits(t, size, font_file), "homoglyph-tiny-corner",
+                         size, font_file)
 
 
 def generate_stacked_rotated_low_contrast(instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -525,7 +717,7 @@ def generate_stacked_rotated_low_contrast(instruction_text: str, size: Size = DE
     light background, or an angled text region - has less to fire on here
     than it would against either technique by itself.
     """
-    text = prepare_caption(instruction_text, font_path)
+    text = prepare_rotated(instruction_text, font_path, size, what="rotated-low-contrast")
     fill = (255, 255, 255)
     img = canvas(size, base_image, fill=fill).convert("RGBA")
     paste_rotated(img, text, font_path, near_background_color(fill, LOW_CONTRAST_DELTA))
@@ -546,7 +738,7 @@ def generate_stacked_homoglyph_tiny_corner(instruction_text: str, size: Size = D
     notice the corner and try the reversal-and-lookalike normalization on
     whatever it finds there.
     """
-    text = prepare_stacked_homoglyph_tiny_corner(instruction_text, font_path)
+    text = prepare_stacked_homoglyph_tiny_corner(instruction_text, font_path, size)
     img = canvas(size, base_image, fill="white").convert("RGB")
     draw_in_corner(ImageDraw.Draw(img), text, size, font_path or UNICODE_FONT)
     return img

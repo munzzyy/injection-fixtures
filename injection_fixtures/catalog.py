@@ -39,7 +39,7 @@ CATALOG: Dict[str, Technique] = {
             description="Text a few shades off the background color: hard for a human to notice on a skim, still a distinct pixel value.",
             ocr_expected=False,
             generate=_t.generate_low_contrast,
-            prepare=_t.prepare_default,
+            prepare=_t.prepare_faint,
             min_size=(32, 32),
         ),
         Technique(
@@ -48,7 +48,7 @@ CATALOG: Dict[str, Technique] = {
             description="Text one shade off the background color: near-zero pixel-intensity contrast against whatever base image is used, still a real (recoverable) pixel value.",
             ocr_expected=False,
             generate=_t.generate_white_on_white,
-            prepare=_t.prepare_default,
+            prepare=functools.partial(_t.prepare_faint, what="white-on-white"),
             min_size=(32, 32),
         ),
         Technique(
@@ -66,8 +66,8 @@ CATALOG: Dict[str, Technique] = {
             description="Text embedded in a fine checkerboard, the kind of high-edge-density region that defeats naive OCR binarization.",
             ocr_expected=False,
             generate=_t.generate_edge_noise,
-            prepare=_t.prepare_default,
-            min_size=(16, 16),
+            prepare=_t.prepare_edge_noise,
+            min_size=(24, 24),
         ),
         Technique(
             id="fake-system-ui",
@@ -75,7 +75,7 @@ CATALOG: Dict[str, Technique] = {
             description="A rounded box styled like a chat or system-message bubble, containing the instruction as if it were legitimate UI.",
             ocr_expected=True,
             generate=_t.generate_fake_system_message,
-            prepare=_t.prepare_default,
+            prepare=_t.prepare_system_message,
             min_size=(64, 64),
         ),
         Technique(
@@ -93,8 +93,8 @@ CATALOG: Dict[str, Technique] = {
             description="Text composited at low alpha over a noisy background.",
             ocr_expected=False,
             generate=_t.generate_low_opacity,
-            prepare=_t.prepare_default,
-            min_size=(32, 32),
+            prepare=_t.prepare_low_opacity,
+            min_size=(40, 40),
         ),
         Technique(
             id="rotated-skew",
@@ -102,8 +102,8 @@ CATALOG: Dict[str, Technique] = {
             description="Upright text rotated to an angle, the way a watermark or an OCR-hostile payload would sit.",
             ocr_expected=False,
             generate=_t.generate_rotated,
-            prepare=_t.prepare_caption,
-            min_size=(16, 16),
+            prepare=_t.prepare_rotated,
+            min_size=(32, 32),
         ),
         Technique(
             id="homoglyph",
@@ -122,7 +122,7 @@ CATALOG: Dict[str, Technique] = {
             ocr_expected=False,
             generate=_t.generate_bidi_override,
             prepare=_t.prepare_bidi,
-            min_size=(32, 32),
+            min_size=(40, 40),
             provenance=PROVENANCE_IN_THE_WILD,
         ),
         Technique(
@@ -141,7 +141,7 @@ CATALOG: Dict[str, Technique] = {
             description="Text painted a few shades off the saturated colored panel it sits in, with two more panels beside it as distractors.",
             ocr_expected=False,
             generate=_t.generate_color_camouflage,
-            prepare=_t.prepare_default,
+            prepare=_t.prepare_color_camouflage,
             min_size=(96, 96),
             provenance=PROVENANCE_IN_THE_WILD,
         ),
@@ -151,7 +151,7 @@ CATALOG: Dict[str, Technique] = {
             description="rotated-skew and low-contrast compounded: angled text a few shades off the background instead of full-contrast dark grey.",
             ocr_expected=False,
             generate=functools.partial(_t.generate_stacked, ["low-contrast", "rotated-skew"]),
-            prepare=_t.prepare_caption,
+            prepare=functools.partial(_t.prepare_rotated, what="rotated-low-contrast"),
             min_size=(32, 32),
             provenance=PROVENANCE_STACKED,
         ),
@@ -183,15 +183,21 @@ def _technique(technique_id: str) -> Technique:
 
 
 def rendered_instruction(technique_id: str, instruction_text: str,
-                          font_path: Optional[FontPath] = None) -> str:
-    """The exact string `generate_image` draws for this technique and text.
+                          font_path: Optional[FontPath] = None, size: Size = DEFAULT_SIZE) -> str:
+    """The exact string `generate_image` draws for this technique and text at
+    this size.
 
     Not always the text that went in: `homoglyph` swaps in look-alike
     codepoints, `bidi-override` reverses it, `tiny-corner` and `caption-chrome`
-    truncate. Anything scoring a detector against this corpus needs the string
-    that is actually in the pixels, not the one the caller asked for.
+    truncate, and every technique cuts an instruction that does not fit the
+    canvas back to the words that do. Anything scoring a detector against this
+    corpus needs the string that is actually in the pixels, not the one the
+    caller asked for. Raises the same ValueError `generate_image` would.
     """
-    return _technique(technique_id).prepare(instruction_text, font_path)
+    technique = _technique(technique_id)
+    size = validate_size(size)
+    require_min_size(size, technique.min_size, technique_id)
+    return technique.prepare(instruction_text, font_path, size=size)
 
 
 def generate_image(technique_id: str, instruction_text: str, size: Size = DEFAULT_SIZE,
@@ -202,6 +208,9 @@ def generate_image(technique_id: str, instruction_text: str, size: Size = DEFAUL
     an instruction that draws nothing (whitespace, zero-width or bidi control
     characters only), rather than surfacing a raw KeyError or a silently empty
     image. An empty string is the exception: it renders the no-text baseline.
+
+    An instruction longer than the canvas holds is cut after the last word
+    that fits, and `rendered_instruction` with the same size returns the cut.
     """
     technique = _technique(technique_id)
     size = validate_size(size)
