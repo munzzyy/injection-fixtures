@@ -8,6 +8,7 @@ import functools
 import os
 import random
 import re
+import unicodedata
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -106,6 +107,10 @@ def normalize_breaks(text: str) -> str:
     return text
 
 
+def _no_ink_by_design(ch: str) -> bool:
+    return ch.isspace() or unicodedata.category(ch) in ("Cf", "Cc", "Zs", "Zl", "Zp")
+
+
 def clip_text(text: str, font_path: Optional[FontPath] = None) -> str:
     """Cap and validate the instruction/caption text before it is rendered.
 
@@ -116,7 +121,13 @@ def clip_text(text: str, font_path: Optional[FontPath] = None) -> str:
     if not isinstance(text, str):
         raise TypeError(f"text must be a str, got {type(text).__name__}")
     text = normalize_breaks(text[:MAX_TEXT_LEN])
-    missing = [ch for ch in dict.fromkeys(text) if not _font_has_glyph(ch, font_path)]
+    # Zero-width and control characters have no glyph in some FreeType builds
+    # and an empty one in others. Either way they draw nothing, and
+    # require_visible is the check that says so, the same on every platform.
+    missing = [
+        ch for ch in dict.fromkeys(text)
+        if not _no_ink_by_design(ch) and not _font_has_glyph(ch, font_path)
+    ]
     if missing:
         shown = "".join(missing[:5])
         which = "the bundled font" if font_path is None else f"the font at {font_path}"
